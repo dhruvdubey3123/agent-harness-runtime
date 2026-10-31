@@ -8,6 +8,20 @@ those problems: the **harness**.
 If you remove the model from an agent's architecture diagram, everything left over is the harness. Here
 that is four things:
 
+## In plain words
+
+An AI agent runs a loop: decide, use a tool, look at the result, repeat. In real systems the program can crash
+in the middle of that loop. If you restart from scratch, the agent may repeat actions that already happened,
+such as sending a message twice or writing a duplicate log line. The harness is the safety layer around the model.
+
+* It records every step before and after it runs.
+* After a crash it picks up where it stopped instead of starting over.
+* When it cannot tell whether a step took effect, it stops and asks a person.
+* Each agent only sees and can use the tools it is allowed.
+* It trims old context so the model does not overflow.
+
+In the 200-run crash benchmark, restarting duplicated actions in 145 runs and resuming duplicated none.
+
 | Piece | What it owns | Where |
 |---|---|---|
 | **Loop** | Asks the model for one action at a time, enforces `max_steps`, records every step | `harness/runtime.py` |
