@@ -5,9 +5,6 @@ and then the process died halfway through a tool call, or the context filled up 
 agent called a tool it should never have seen. This repo is the part of an agent system that handles
 those problems: the **harness**.
 
-If you remove the model from an agent's architecture diagram, everything left over is the harness. Here
-that is four things:
-
 ## In plain words
 
 An AI agent runs a loop: decide, use a tool, look at the result, repeat. In real systems the program can crash
@@ -21,6 +18,9 @@ such as sending a message twice or writing a duplicate log line. The harness is 
 * It trims old context so the model does not overflow.
 
 In the 200-run crash benchmark, restarting duplicated actions in 145 runs and resuming duplicated none.
+
+If you remove the model from an agent's architecture diagram, everything left over is the harness. Here
+that is four things:
 
 | Piece | What it owns | Where |
 |---|---|---|
