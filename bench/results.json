@@ -1,0 +1,16 @@
+{
+  "restart": {
+    "trials": 200,
+    "side_effecting_calls_repeated": 748,
+    "runs_with_duplicated_side_effect": "145/200",
+    "runs_halted_for_human_review": "0/200",
+    "runs_correct_without_human": "55/200"
+  },
+  "resume": {
+    "trials": 200,
+    "side_effecting_calls_repeated": 39,
+    "runs_with_duplicated_side_effect": "0/200",
+    "runs_halted_for_human_review": "57/200",
+    "runs_correct_without_human": "143/200"
+  }
+}

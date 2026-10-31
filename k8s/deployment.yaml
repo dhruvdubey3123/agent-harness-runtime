@@ -1,0 +1,66 @@
+# The run log is SQLite on a persistent volume, so this runs as a single replica.
+# To scale out, swap RunStore for Postgres and raise replicas; the harness code does not change.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-harness
+  labels: {app: agent-harness}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector: {matchLabels: {app: agent-harness}}
+  template:
+    metadata: {labels: {app: agent-harness}}
+    spec:
+      securityContext: {runAsNonRoot: true, fsGroup: 10001}
+      containers:
+        - name: api
+          image: ghcr.io/dhruvdubey3123/agent-harness-runtime:latest
+          ports: [{containerPort: 8000}]
+          env:
+            - name: ANTHROPIC_API_KEY
+              valueFrom: {secretKeyRef: {name: harness-secrets, key: anthropic-api-key, optional: true}}
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: "1", memory: 512Mi}
+          readinessProbe: {httpGet: {path: /healthz, port: 8000}, periodSeconds: 10}
+          livenessProbe: {httpGet: {path: /healthz, port: 8000}, initialDelaySeconds: 10, periodSeconds: 20}
+          volumeMounts: [{name: data, mountPath: /app/data}, {name: skills, mountPath: /app/skills}]
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: harness-data}
+        - name: skills
+          persistentVolumeClaim: {claimName: harness-skills}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: harness-data}
+spec: {accessModes: [ReadWriteOnce], resources: {requests: {storage: 1Gi}}}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: harness-skills}
+spec: {accessModes: [ReadWriteOnce], resources: {requests: {storage: 256Mi}}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: agent-harness}
+spec:
+  selector: {app: agent-harness}
+  ports: [{port: 80, targetPort: 8000}]
+---
+# Nightly skill distillation: last night's logs become this morning's procedures.
+apiVersion: batch/v1
+kind: CronJob
+metadata: {name: harness-distill}
+spec:
+  schedule: "17 4 * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: distill
+              image: curlimages/curl:8.10.1
+              args: ["-fsS", "-X", "POST", "http://agent-harness/skills/distill?min_support=2"]

@@ -1,0 +1,25 @@
+name: ci
+on:
+  push: {branches: [main]}
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: pip install -e ".[dev]"
+      - run: pytest -q
+      - name: Crash-recovery benchmark (resume must never duplicate a side effect)
+        run: |
+          python -m bench.crash_bench --trials 200 --seed 1
+          python -c "import json,sys; r=json.load(open('bench/results.json'))['resume']; sys.exit(0 if r['runs_with_duplicated_side_effect'].startswith('0/') else 1)"
+      - uses: actions/upload-artifact@v4
+        with: {name: bench-results, path: bench/results.json}
+  docker:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t agent-harness-runtime .
