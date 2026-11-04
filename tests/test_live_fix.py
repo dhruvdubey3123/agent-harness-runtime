@@ -14,7 +14,7 @@ import pytest
 pytest.importorskip("triage")
 pytest.importorskip("langgraph.checkpoint.sqlite")
 
-from tests.stub_model_server import serving  # noqa: E402
+from stub_model_server import serving  # noqa: E402  (sibling module: pytest puts tests/ on the path)
 
 
 @pytest.fixture
