@@ -19,6 +19,16 @@ such as sending a message twice or writing a duplicate log line. The harness is 
 
 In the 200-run crash benchmark, restarting duplicated actions in 145 runs and resuming duplicated none.
 
+## Input and output
+
+**In:** an agent definition (its instructions and the tools it is allowed to use), a task in plain language, and a model.
+Over HTTP that is `POST /runs {"agent": "writer", "task": "...", "task_kind": "..."}`.
+
+**Out:** a run record. It holds the status (`done`, `failed`, or `needs_review`), the final answer, and every step with
+its tool, arguments, result, state and retry count. The tools' real effects (files written, lines appended) happen
+exactly once, even if the process was killed partway. Finished runs can also be distilled into skill files that the
+next run of the same kind reads.
+
 If you remove the model from an agent's architecture diagram, everything left over is the harness. Here
 that is four things:
 
