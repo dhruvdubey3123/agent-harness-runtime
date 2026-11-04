@@ -90,6 +90,16 @@ CI reruns the benchmark on every push and fails if resume ever produces a duplic
 
 Reproduce: `python -m bench.crash_bench --trials 200 --seed 1`
 
+## Tested with a real open-weight model
+
+`examples/real_model.py` against **Qwen3 8B** served by Ollama on a laptop CPU: **4 of 4 checks passed** in 201 s.
+
+![Real-model results: 4 of 4 checks passed](docs/real_model.png)
+
+* A clean run, a crash after a safe write, and a crash after a non-idempotent append all ended with the audit line written exactly once. Restarting from scratch after the same crash wrote it twice.
+* The model's proposed SQL fix was wrong (it dropped a column instead of fixing the reference). The harness controls how an agent acts, not whether its idea is right, which is why risky actions sit behind a human gate.
+* Full output: [examples/results/qwen3-8b.md](examples/results/qwen3-8b.md).
+
 ## Quick start
 
 ```bash
@@ -173,7 +183,7 @@ Service and the distillation CronJob.
 
 ## Status
 
-Built and tested. Not yet battle-tested against a live model at scale. Real-model runs, a Postgres store and
-OpenTelemetry spans are next.
+Built and tested, including one end-to-end run with a real open-weight model (Qwen3 8B, above). Not yet
+battle-tested at scale. A Postgres store, OpenTelemetry spans and running the triage agent inside the harness are next.
 
 MIT licensed.
