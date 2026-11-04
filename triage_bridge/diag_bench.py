@@ -29,10 +29,11 @@ from .runner import DATA
 OUT = Path(__file__).resolve().parent / "diag_bench_results.json"
 
 
-def incidents(limit: int | None = None, only: list[str] | None = None) -> list[dict]:
+def incidents(limit: int | None = None, only: list[str] | None = None, skip: int = 0) -> list[dict]:
     rows = [json.loads(line) for line in (DATA / "incidents.jsonl").read_text().splitlines()]
     if only:
         rows = [r for r in rows if r["id"] in only]
+    rows = rows[skip:]
     return rows[:limit] if limit else rows
 
 
@@ -78,8 +79,8 @@ def tally(cases: list[dict], key: str) -> str:
 
 
 def run(model=None, limit: int | None = None, only: list[str] | None = None, workdir: Path | None = None,
-        max_steps: int = 14) -> dict:
-    rows = incidents(limit, only)
+        max_steps: int = 14, skip: int = 0) -> dict:
+    rows = incidents(limit, only, skip)
     model = model or OpenAICompatModel()
     workdir = workdir or Path(__file__).resolve().parent / "diag_bench_runs"
     m, r = model_path(rows, model, workdir, max_steps), rules(rows)
@@ -99,10 +100,11 @@ def run(model=None, limit: int | None = None, only: list[str] | None = None, wor
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--limit", type=int, default=None, help="first N incidents (default: all 100)")
+    p.add_argument("--skip", type=int, default=0, help="skip the first N incidents, for a held-out sample")
     p.add_argument("--only", nargs="*", default=None, help="case ids, for a single run")
     p.add_argument("--max-steps", type=int, default=14)
     a = p.parse_args()
-    res = run(limit=a.limit, only=a.only, max_steps=a.max_steps)
+    res = run(limit=a.limit, only=a.only, max_steps=a.max_steps, skip=a.skip)
     print(f"\n{res['model']} on {res['incidents']} labelled incidents\n")
     keys = ["root cause correct", "category correct", "submitted a diagnosis", "mean tool calls", "seconds"]
     print(f"{'':24}{'model diagnoser':>18}{'rule-based tracer':>20}")

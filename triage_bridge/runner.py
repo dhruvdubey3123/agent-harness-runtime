@@ -37,6 +37,10 @@ FIXER = ("You are the fixer for a data pipeline. A person has already read the d
          "each approved action once, then finish with one sentence saying what you did.")
 
 
+class Incomplete(Exception):
+    """The fixer said it was finished while approved actions had not happened."""
+
+
 class NeedsReview(Exception):
     """The harness stopped on a step that may already have happened and is not safe to repeat."""
 
@@ -111,6 +115,8 @@ class HarnessExecutor:
         run = r.store.get_run(rid)
         if run["status"] == "needs_review":
             raise NeedsReview(rid, r.store.steps(rid)[-1])
+        if run["status"] == "failed":
+            raise Incomplete(f"{rid}: {run['answer']}")
         return [f'{s["tool"]}({s["args"].get("node") or s["args"].get("case_id") or ""}) -> {s["status"]}' for s in r.store.steps(rid)]
 
 

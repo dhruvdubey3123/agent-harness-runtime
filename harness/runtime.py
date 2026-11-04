@@ -19,7 +19,7 @@ from .sandbox import Policy, Sandbox
 from .skills import load_skills_index
 from .store import RunStore
 from .tools import ToolRegistry
-from .types import DENIED, GAVE_UP, Finish, RetryableToolError, ToolCall, ToolDenied
+from .types import DENIED, FINISH_STEP, GAVE_UP, MAX_FINISH_REJECTIONS, Finish, RetryableToolError, ToolCall, ToolDenied
 
 FaultHook = Callable[[str, int, ToolCall], None]
 
@@ -32,6 +32,9 @@ class AgentSpec:
     max_steps: int = 25
     max_retries: int = 2
     backoff_s: float = 0.05
+    finish_on: frozenset[str] = frozenset()
+    """Tools whose first successful call ends the run. A model told to "call this once and stop"
+    will sometimes keep going and change its mind, and the harness is what enforces "once"."""
 
 
 @dataclass
@@ -83,6 +86,13 @@ class Harness:
 
     # ------------------------------------------------------------------ loop
 
+    @staticmethod
+    def _ended_by(agent: AgentSpec, steps: list[dict]) -> str | None:
+        for s in steps:
+            if s["tool"] in agent.finish_on and s["status"] == "done":
+                return str(s["result"])
+        return None
+
     def _hook(self, event: str, idx: int, call: ToolCall) -> None:
         if self.fault_hook:
             self.fault_hook(event, idx, call)
@@ -119,6 +129,13 @@ class Harness:
                 self._execute(agent, sandbox, run_id, last["idx"], ToolCall(last["tool"], last["args"]), m)
             steps = self.store.steps(run_id)
 
+        ended = self._ended_by(agent, steps)
+        if ended is not None:   # a crash landed between the tool finishing and the status being written
+            self.store.set_status(run_id, "done", ended)
+            m.steps = len(steps)
+            m.wall_ms += (time.perf_counter() - t0) * 1000
+            return
+
         skills = load_skills_index(self.skills_dir, run["task_kind"]) if self.skills_dir else ""
         idx = len(steps)
         while idx < agent.max_steps:
@@ -127,10 +144,29 @@ class Harness:
             m.est_context_tokens.append(est_tokens(ctx))
             action = self.model.next_action(ctx, sandbox.visible_tools())
             if isinstance(action, Finish):
-                self.store.set_status(run_id, "done", action.answer)
+                left = sandbox.unspent()
+                if left and sum(1 for s in steps if s["tool"] == FINISH_STEP) < MAX_FINISH_REJECTIONS:
+                    # The envelope is a ceiling, so a model can stop early and the run still looks
+                    # complete. Approved work that never happened is a dropped action, so a
+                    # finish with approved actions outstanding goes back to the model, in the log.
+                    self.store.begin_step(run_id, idx, FINISH_STEP, {"answer": action.answer}, True)
+                    self.store.finish_step(run_id, idx, error=f"{DENIED}not finished: approved actions "
+                                                              f"still to apply: {'; '.join(left)}")
+                    steps = self.store.steps(run_id)
+                    idx += 1
+                    continue
+                if left:
+                    self.store.set_status(run_id, "failed", "finished with approved actions not applied: "
+                                          + "; ".join(left))
+                else:
+                    self.store.set_status(run_id, "done", action.answer)
                 break
             self._execute(agent, sandbox, run_id, idx, action, m)
             steps = self.store.steps(run_id)
+            ended = self._ended_by(agent, steps)
+            if ended is not None:
+                self.store.set_status(run_id, "done", ended)
+                break
             idx += 1
         else:
             self.store.set_status(run_id, "failed", f"hit max_steps={agent.max_steps}")

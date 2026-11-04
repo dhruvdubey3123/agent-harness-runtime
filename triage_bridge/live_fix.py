@@ -100,8 +100,12 @@ def clean(workdir: Path) -> None:
             "audit line the model wrote": t.warehouse.texts()["audit"],
             "job_runs": counts["job_runs"], "comments": counts["comments"], "refused": refused(st),
             "duplicated actions": t.warehouse.duplicated_actions()}
+    audit = t.warehouse.texts()["audit"]
+    info["audit lines written"] = len(audit)
+    # Exactly once is not enough: an approved action that never happened is a dropped action too.
     info["pass"] = (v["outcome"] == "resolved" and counts["job_runs"] == {"sp_fill_rate": 1}
-                    and counts["comments"] == {CASE: 1} and t.warehouse.duplicated_actions() == 0)
+                    and counts["comments"] == {CASE: 1} and len(audit) == 1
+                    and t.warehouse.duplicated_actions() == 0)
     t.close()
     record("clean_apply", "1. the model applies the approved plan", info)
 
@@ -226,6 +230,10 @@ def two_agents(workdir: Path) -> None:
     info = {**diagnosed, "crashed during the fix": crashed, "resume paused on": paused,
             "trace": t2.trace(CASE), "job_runs": counts["job_runs"], "comments": counts["comments"],
             "duplicated actions": t2.warehouse.duplicated_actions()}
+    info["the approved plan was the right one"] = diagnosed["root cause correct"]
+    # pass is about the harness, not the model: exactly once, nothing unapproved, nothing missing.
+    # A wrong diagnosis that a person approves is applied faithfully, and is reported above rather
+    # than failed here, because bounding what an agent does is not the same as it being right.
     info["pass"] = (t2.view(CASE)["outcome"] == "resolved" and t2.warehouse.duplicated_actions() == 0
                     and all(n == 1 for n in counts["job_runs"].values()))
     t.close()

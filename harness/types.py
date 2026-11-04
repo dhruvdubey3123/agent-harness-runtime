@@ -25,6 +25,10 @@ StepStatus = Literal["started", "dispatched", "done", "error"]
 DENIED = "denied: "
 GAVE_UP = "gave up after "
 
+# A finish the harness sent back because approved work was still outstanding.
+FINISH_STEP = "finish"
+MAX_FINISH_REJECTIONS = 2
+
 
 class SimulatedCrash(BaseException):
     """Raised in tests and benchmarks to kill a run mid-step, like a process dying.

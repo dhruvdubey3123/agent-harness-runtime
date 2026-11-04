@@ -134,7 +134,8 @@ def tools(dag: PipelineDAG, library: CaseLibrary, incident: dict) -> ToolRegistr
 
 
 def spec(max_steps: int = 14) -> AgentSpec:
-    return AgentSpec("diagnoser", INSTRUCTIONS, Policy(READ_ONLY, max_calls_per_tool=6), max_steps=max_steps)
+    return AgentSpec("diagnoser", INSTRUCTIONS, Policy(READ_ONLY, max_calls_per_tool=6), max_steps=max_steps,
+                     finish_on=frozenset({"submit_diagnosis"}))
 
 
 def task(incident: dict) -> str:

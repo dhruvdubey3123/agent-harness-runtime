@@ -76,5 +76,14 @@ class Envelope:
         raise ToolDenied(f"'{call.tool}' with those arguments is not in the approved plan. "
                          f"Approved: {self.describe()}")
 
+    def remaining(self, used: Mapping[int, int]) -> list[str]:
+        """Approved actions not yet applied, as text. The envelope is a ceiling, and this is the floor."""
+        out = []
+        for i, a in enumerate(self.actions):
+            left = a.times - used.get(i, 0)
+            if left > 0:
+                out.append(str(ApprovedAction(a.tool, a.match, left)))
+        return out
+
     def describe(self) -> str:
         return "; ".join(str(a) for a in self.actions) or "(nothing)"

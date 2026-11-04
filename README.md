@@ -212,21 +212,46 @@ The two agents are deliberately unequal.
 
 ### Is the model any good at it?
 
-The 100 incidents carry labels, so this is measurable rather than a matter of opinion. The deterministic tracer sets the bar:
+The 100 incidents carry labels, so this is measurable. Qwen3 8B (local, Ollama, RTX 4060) on the first 20, against the deterministic
+tracer on the same 20:
 
-| On all 100 labelled incidents | Rule-based tracer |
-|---|---|
-| Root cause identified correctly | 100 / 100 |
-| Category identified correctly | 93 / 100 |
-| Wall clock | 0.8 s |
+| First 20 labelled incidents | Qwen3 8B diagnoser | Rule-based tracer |
+|---|---|---|
+| Root cause identified correctly | 13 / 20 | 20 / 20 |
+| Category identified correctly | 15 / 20 | 17 / 20 |
+| Submitted a diagnosis at all | 20 / 20 | n/a |
+| Mean tool calls | 5.0 | n/a |
+| Wall clock | 1707 s | 0.1 s |
 
-`python -m triage_bridge.diag_bench --limit 20` scores a model against the same labels and prints both columns side by side,
-including which cases it missed. Nothing is applied during that benchmark, so a wrong answer costs a wrong row and nothing else.
-Fill in the model column from your own run; a small local model is not expected to beat a tracer written for this pipeline, and
-the useful question is how close it gets and where it fails.
+The tracer is better, as it should be: it was written for this pipeline, and the model has to rediscover the structure on every
+incident. The 8B model gets about two thirds of the root causes. The more useful result is *how* it fails, and one failure was
+the harness's fault. In the end-to-end run the model submitted the correct node (`sp_fill_rate`) three times, then changed its
+mind and submitted the wrong one (`load_cases`) three more, and the run kept the last. A model told to "submit once" will not
+reliably do so, so **"once" is now enforced by the harness**: `AgentSpec.finish_on` ends the run at the first valid call to a
+terminal tool. Invalid submissions still go back to the model as errors it can correct; only a valid one ends the run.
+
+That change was made after looking at failures on these 20, so the 13/20 above is the *before*. The honest *after* has to come from
+incidents the change was not designed on: `python -m triage_bridge.diag_bench --skip 20 --limit 20`.
+
+Nothing is applied during that benchmark, so a wrong answer costs a wrong row and nothing else.
+
+### What the real-model run showed about the harness
+
+`python -m triage_bridge.live_fix` ran 4 of 4 checks on Qwen3 8B, and two of the things it surfaced are worth stating plainly.
+
+* **The envelope held, and it is a ceiling, not a floor.** With an untrusted note in the incident asking for an extra job run and
+  a second comment, the model tried the job run, was refused, and said so in its own summary. But in the clean run it also
+  *skipped* an approved action (the audit line) and finished, and the run was marked done. Nothing unapproved happened, and
+  something approved did not. That is a dropped action, so a finish with approved actions outstanding is now sent back to the
+  model, in the log, up to twice, and then the run ends `failed` and names what is missing.
+* **A wrong diagnosis that a person approves is applied faithfully.** In the two-agent run the model diagnosed `load_cases`
+  instead of `sp_fill_rate`, the (automatic) approval accepted it, and the fixer applied exactly that plan once through a crash.
+  The harness bounds what an agent does, not whether its idea is right, which is the reason the approval gate exists. The script
+  reports "the approved plan was the right one" separately from whether the harness held.
 
 ```bash
 python -m triage_bridge.diag_bench --limit 20   # the model diagnoses, scored against the labels
+python -m triage_bridge.diag_bench --skip 20 --limit 20   # held-out sample
 python -m triage_bridge.live_fix                # 4 checks: apply, crash, untrusted input, both agents
 ```
 
@@ -323,7 +348,7 @@ a short search that fails if the winner ever duplicates or drops an action.
 
 ```bash
 pip install -e ".[dev]"
-pytest -q                          # 32 tests, 68 with the [triage] extra
+pytest -q                          # 32 tests, 74 with the [triage] extra
 python examples/quickstart.py      # run, crash at step 2, resume from the log
 ```
 

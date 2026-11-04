@@ -35,6 +35,10 @@ class Sandbox:
         self.used: dict[int, int] = {}   # approved action index -> times already charged
         self._pool = cf.ThreadPoolExecutor(max_workers=4)
 
+    def unspent(self) -> list[str]:
+        """Approved actions that have not happened yet. Empty when there is no envelope."""
+        return self.policy.envelope.remaining(self.used) if self.policy.envelope is not None else []
+
     def close(self) -> None:
         """Let the worker threads go. One run means one sandbox, and a benchmark means hundreds of
         runs, so a pool that outlives its run is a leak that only shows up at scale."""

@@ -26,7 +26,7 @@ from harness import AgentSpec, Envelope, Harness, OpenAICompatModel, Policy, Rec
 
 from . import diagnoser
 from .diagnoser import Diagnosis, derive_plan
-from .runner import DATA, FIXER, KEY_FIELDS, TOOLS, NeedsReview, describe_task, plan_to_calls
+from .runner import DATA, FIXER, KEY_FIELDS, TOOLS, Incomplete, NeedsReview, describe_task, plan_to_calls
 from .warehouse import Warehouse
 
 
@@ -156,6 +156,8 @@ class TwoAgentTriage:
         run = self.store.get_run(rid)
         if run["status"] == "needs_review":
             raise NeedsReview(rid, self.store.steps(rid)[-1])
+        if run["status"] == "failed":
+            raise Incomplete(f"{rid}: {run['answer']}")
         return self.view(cid)
 
     # ------------------------------------------------------------------ after a crash
