@@ -49,6 +49,17 @@ class TwoAgentTriage:
         self.fault_hook = fault_hook
         self.max_steps = max_steps
 
+    def close(self) -> None:
+        """Release the run log. Needed wherever the working directory is deleted after, since
+        Windows refuses to delete a file that is still open."""
+        self.store.close()
+
+    def __enter__(self) -> TwoAgentTriage:
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
+
     # ------------------------------------------------------------------ durable case state
 
     def _case_path(self, cid: str) -> Path:

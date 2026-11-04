@@ -68,18 +68,22 @@ def trial(rng: random.Random, strategy: str) -> dict:
     with tempfile.TemporaryDirectory() as d:
         ws, db, counter = Path(d) / "ws", Path(d) / "runs.db", {}
         agent = AgentSpec("bench", "run the script", POLICY)
-        h1 = Harness(counting_registry(ws, counter), ScriptedModel(script), RunStore(db), fault_hook=crash_hook(window, step))
-        try:
-            h1.start(agent, "task", run_id="t")
-        except SimulatedCrash:
-            pass
+        with RunStore(db) as first:   # closed before the directory goes: Windows will not delete an open file
+            h1 = Harness(counting_registry(ws, counter), ScriptedModel(script), first,
+                         fault_hook=crash_hook(window, step))
+            try:
+                h1.start(agent, "task", run_id="t")
+            except SimulatedCrash:
+                pass
         status = "done"
         if strategy == "restart":
-            Harness(counting_registry(ws, counter), ScriptedModel(script), RunStore()).start(agent, "task")
+            with RunStore() as fresh:
+                Harness(counting_registry(ws, counter), ScriptedModel(script), fresh).start(agent, "task")
         else:
-            h2 = Harness(counting_registry(ws, counter), ScriptedModel(script), RunStore(db))
-            h2.resume(agent, "t")
-            status = h2.store.get_run("t")["status"]
+            with RunStore(db) as second:
+                h2 = Harness(counting_registry(ws, counter), ScriptedModel(script), second)
+                h2.resume(agent, "t")
+                status = h2.store.get_run("t")["status"]
         audit = ws / "audit.log"
         lines = audit.read_text().splitlines() if audit.exists() else []
         repeated = sum(c - 1 for c in counter.values() if c > 1)

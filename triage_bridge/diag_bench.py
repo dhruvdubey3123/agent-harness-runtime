@@ -57,19 +57,19 @@ def rules(rows: list[dict]) -> dict:
 def model_path(rows: list[dict], model, workdir: Path, max_steps: int) -> dict:
     t0, out = time.perf_counter(), []
     for r in rows:
-        t = TwoAgentTriage(workdir / r["id"], model=model, max_steps=max_steps)
-        try:
-            t.diagnose(r)
-        except Exception as e:                      # a model that stalls should cost one row, not the run
-            out.append({"id": r["id"], "error": f"{type(e).__name__}: {e}",
-                        "root_cause_ok": False, "category_ok": False})
-            continue
-        d, steps = t.diagnosis(r["id"]), t.store.steps(f"diag-{r['id']}")
-        out.append({"id": r["id"], "fix_target": d and d.fix_target, "category": d and d.category,
-                    "cause": d and d.cause, "submitted": d is not None, "tool_calls": len(steps),
-                    "refused": sum(1 for s in steps if s.get("error")),
-                    "review_issues": t.review(r["id"]),
-                    **score(r["label"], d and d.fix_target, d and d.category)})
+        with TwoAgentTriage(workdir / r["id"], model=model, max_steps=max_steps) as t:
+            try:
+                t.diagnose(r)
+            except Exception as e:                  # a model that stalls should cost one row, not the run
+                out.append({"id": r["id"], "error": f"{type(e).__name__}: {e}",
+                            "root_cause_ok": False, "category_ok": False})
+                continue
+            d, steps = t.diagnosis(r["id"]), t.store.steps(f"diag-{r['id']}")
+            out.append({"id": r["id"], "fix_target": d and d.fix_target, "category": d and d.category,
+                        "cause": d and d.cause, "submitted": d is not None, "tool_calls": len(steps),
+                        "refused": sum(1 for s in steps if s.get("error")),
+                        "review_issues": t.review(r["id"]),
+                        **score(r["label"], d and d.fix_target, d and d.category)})
     return {"cases": out, "seconds": round(time.perf_counter() - t0, 1)}
 
 

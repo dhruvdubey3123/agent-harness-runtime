@@ -51,47 +51,56 @@ def run(seed: int = 1, recovery: RecoveryPolicy | None = None, min_confidence: f
                       "finished": 0, "runs_exactly_once": 0, "dropped_actions": 0, "paused_on": {}}}
     for inc in incidents:
         with tempfile.TemporaryDirectory() as d:
-            probe = TriageInHarness(Path(d) / "probe", **cfg)
-            view = probe.diagnose(inc)
-            gated = view.get("waiting_for_human", False)
-            out["gate_matches_label"] += gated == (inc["label"]["expected_action"] == "propose")
-            if not gated:
-                out["escalated_by_triage"] += 1
-                continue
-            out["reached_gate"] += 1
-            calls = plan_to_calls(probe.dag, inc["id"], view["category"], view["plan"], view.get("proposal") or "")
-            step, window = rng.randrange(len(calls)), rng.choice(WINDOWS)
+            open_runs = []   # every SQLite file is released before the directory goes
+            try:
+                probe = TriageInHarness(Path(d) / "probe", **cfg)
+                open_runs.append(probe)
+                view = probe.diagnose(inc)
+                gated = view.get("waiting_for_human", False)
+                out["gate_matches_label"] += gated == (inc["label"]["expected_action"] == "propose")
+                if not gated:
+                    out["escalated_by_triage"] += 1
+                    continue
+                out["reached_gate"] += 1
+                calls = plan_to_calls(probe.dag, inc["id"], view["category"], view["plan"], view.get("proposal") or "")
+                step, window = rng.randrange(len(calls)), rng.choice(WINDOWS)
 
-            for strategy in ("restart", "resume"):
-                wd = Path(d) / strategy
-                t = TriageInHarness(wd, fault_hook=crash_at(step, window), **cfg)
-                t.diagnose(inc)
-                try:
-                    t.decide(inc["id"], True, "reviewer")
-                except SimulatedCrash:
-                    pass
-                wh = Warehouse(wd / "warehouse.db")
-                if strategy == "restart":
-                    # no run log: the only option is to run the approved plan again from the top
-                    Harness(wh.tools(), ScriptedModel(calls), RunStore()).start(
-                        _agent(len(calls)), "re-apply from scratch", run_id="restart")
-                else:
-                    t2 = TriageInHarness(wd, **cfg)
+                for strategy in ("restart", "resume"):
+                    wd = Path(d) / strategy
+                    t = TriageInHarness(wd, fault_hook=crash_at(step, window), **cfg)
+                    open_runs.append(t)
+                    t.diagnose(inc)
                     try:
-                        v = t2.recover(inc["id"])
-                        out["resume"]["finished_unattended"] += 1
-                    except NeedsReview as e:
-                        out["resume"]["stopped_for_review"] += 1
-                        p = out["resume"]["paused_on"]
-                        p[e.step["tool"]] = p.get(e.step["tool"], 0) + 1
-                        v = t2.resolve(inc["id"], t2.warehouse.took_effect(e.step["tool"], e.step["args"]))
-                    out["resume"]["finished"] += v.get("outcome") == "resolved"
-                dup = wh.duplicated_actions()
-                out[strategy]["runs_exactly_once"] += exactly_once(wh, calls)
-                out[strategy]["duplicate_actions"] += dup
-                out[strategy]["runs_with_duplicate"] += dup > 0
-                if strategy == "resume":
-                    out["resume"]["dropped_actions"] += missing_actions(wh, calls)
+                        t.decide(inc["id"], True, "reviewer")
+                    except SimulatedCrash:
+                        pass
+                    wh = Warehouse(wd / "warehouse.db")
+                    if strategy == "restart":
+                        # no run log: the only option is to run the approved plan again from the top
+                        with RunStore() as fresh:
+                            Harness(wh.tools(), ScriptedModel(calls), fresh).start(
+                                _agent(len(calls)), "re-apply from scratch", run_id="restart")
+                    else:
+                        t2 = TriageInHarness(wd, **cfg)
+                        open_runs.append(t2)
+                        try:
+                            v = t2.recover(inc["id"])
+                            out["resume"]["finished_unattended"] += 1
+                        except NeedsReview as e:
+                            out["resume"]["stopped_for_review"] += 1
+                            p = out["resume"]["paused_on"]
+                            p[e.step["tool"]] = p.get(e.step["tool"], 0) + 1
+                            v = t2.resolve(inc["id"], t2.warehouse.took_effect(e.step["tool"], e.step["args"]))
+                        out["resume"]["finished"] += v.get("outcome") == "resolved"
+                    dup = wh.duplicated_actions()
+                    out[strategy]["runs_exactly_once"] += exactly_once(wh, calls)
+                    out[strategy]["duplicate_actions"] += dup
+                    out[strategy]["runs_with_duplicate"] += dup > 0
+                    if strategy == "resume":
+                        out["resume"]["dropped_actions"] += missing_actions(wh, calls)
+            finally:
+                for r in open_runs:
+                    r.close()
     out["raw"] = {"reached_gate": out["reached_gate"], "resume": dict(out["resume"]), "restart": dict(out["restart"])}
     n = out["reached_gate"]
     for k in ("runs_with_duplicate", "runs_exactly_once"):

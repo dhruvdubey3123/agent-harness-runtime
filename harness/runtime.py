@@ -88,9 +88,12 @@ class Harness:
             self.fault_hook(event, idx, call)
 
     def _loop(self, agent: AgentSpec, run_id: str, resuming: bool = False) -> None:
+        with Sandbox(self.registry, agent.policy) as sandbox:
+            self._run_loop(agent, run_id, sandbox, resuming)
+
+    def _run_loop(self, agent: AgentSpec, run_id: str, sandbox: Sandbox, resuming: bool) -> None:
         m = self.metrics.setdefault(run_id, RunMetrics())
         t0 = time.perf_counter()
-        sandbox = Sandbox(self.registry, agent.policy)
         run = self.store.get_run(run_id)
         steps = self.store.steps(run_id)
         sandbox.restore(steps)  # per-tool call budgets, and the approved plan, as the log left them

@@ -35,6 +35,17 @@ class Sandbox:
         self.used: dict[int, int] = {}   # approved action index -> times already charged
         self._pool = cf.ThreadPoolExecutor(max_workers=4)
 
+    def close(self) -> None:
+        """Let the worker threads go. One run means one sandbox, and a benchmark means hundreds of
+        runs, so a pool that outlives its run is a leak that only shows up at scale."""
+        self._pool.shutdown(wait=False)
+
+    def __enter__(self) -> Sandbox:
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
+
     def restore(self, steps: list[dict]) -> None:
         """Rebuild the budgets from the run log, so a resumed run cannot spend them twice.
 

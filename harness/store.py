@@ -39,6 +39,17 @@ class RunStore:
         self.db.row_factory = sqlite3.Row
         self.db.executescript(SCHEMA)
 
+    def close(self) -> None:
+        """Release the file. Windows will not let an open file be deleted, so a store that
+        outlives its directory is a portability bug rather than an untidy detail."""
+        self.db.close()
+
+    def __enter__(self) -> RunStore:
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
+
     # runs
     def create_run(self, agent: str, task: str, task_kind: str | None = None, run_id: str | None = None) -> str:
         rid = run_id or f"run-{uuid.uuid4().hex[:10]}"

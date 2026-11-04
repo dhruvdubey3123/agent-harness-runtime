@@ -129,9 +129,21 @@ class TriageInHarness:
         self.max_retries = max_retries
         self.fixer = fixer
         self.executor = HarnessExecutor(self)
-        saver = SqliteSaver(sqlite3.connect(str(self.dir / "triage_graph.db"), check_same_thread=False))
+        self._graph_db = sqlite3.connect(str(self.dir / "triage_graph.db"), check_same_thread=False)
         self.service = TriageService(self.dag, CaseLibrary.load(DATA / "case_library.yaml"), executor=self.executor,
-                                     checkpointer=saver, min_confidence=min_confidence)
+                                     checkpointer=SqliteSaver(self._graph_db), min_confidence=min_confidence)
+
+    def close(self) -> None:
+        """Both SQLite files, released. Needed wherever the working directory is deleted after,
+        since Windows refuses to delete a file that is still open."""
+        self._graph_db.close()
+        self.store.close()
+
+    def __enter__(self) -> TriageInHarness:
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
 
     def fixer_model(self):
         return OpenAICompatModel() if self.fixer == "model" else self.fixer

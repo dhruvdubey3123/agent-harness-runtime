@@ -9,6 +9,8 @@ import pytest
 pytest.importorskip("triage")
 pytest.importorskip("langgraph.checkpoint.sqlite")
 
+import openfiles  # noqa: E402  (sibling module: pytest puts tests/ on the path)
+
 from evolve import Knobs, neighbours  # noqa: E402
 from evolve.guard import PROBES, check_probes, frozen_parts_intact, probes_ok, run_probe  # noqa: E402
 from evolve.knobs import NON_IDEMPOTENT, SHIPPED  # noqa: E402
@@ -97,6 +99,15 @@ def test_neighbours_are_one_knob_away_and_valid():
 def test_pause_is_canonical_so_the_loop_does_not_remeasure_the_same_policy():
     assert SHIPPED.with_recovery("rerun_job", "pause") == SHIPPED
     assert Knobs.from_dict({"recovery": {"rerun_job": "pause"}}) == SHIPPED
+
+
+@pytest.mark.skipif(not openfiles.available, reason="needs /proc to see open descriptors")
+def test_a_probe_leaves_no_database_file_open():
+    """Every probe runs in a temporary directory that is then deleted. Windows refuses to delete a
+    file that is still open, so a leaked connection fails the whole suite there and nothing here."""
+    before = openfiles.open_db_files()
+    check_probes(SHIPPED)
+    assert openfiles.open_db_files() - before == set()
 
 
 def test_rule_proposer_aims_at_the_tool_causing_the_interruptions():

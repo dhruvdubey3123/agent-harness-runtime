@@ -6,6 +6,8 @@ import pytest
 pytest.importorskip("triage")
 pytest.importorskip("langgraph.checkpoint.sqlite")
 
+import openfiles  # noqa: E402  (sibling module: pytest puts tests/ on the path)
+
 from harness import Finish, ScriptedModel, SimulatedCrash, ToolCall  # noqa: E402
 from harness.types import DENIED  # noqa: E402
 from triage_bridge import NeedsReview, TriageInHarness  # noqa: E402
@@ -80,6 +82,16 @@ def test_crash_on_idempotent_patch_resumes_without_a_person(tmp_path):
         t.decide("SYN-007", True)
     v = TriageInHarness(tmp_path).recover("SYN-007")
     assert v["outcome"] == "resolved"
+
+
+@pytest.mark.skipif(not openfiles.available, reason="needs /proc to see open descriptors")
+def test_the_benchmark_leaves_no_database_file_open():
+    """Each incident runs in a temporary directory that is then deleted, which Windows refuses to
+    do while a file is open. Three incidents is enough to catch a leak."""
+    from triage_bridge.bench import run
+    before = openfiles.open_db_files()
+    run(seed=1, limit=3)
+    assert openfiles.open_db_files() - before == set()
 
 
 def test_bench_resume_never_duplicates():

@@ -106,17 +106,19 @@ def run_probe(probe: Probe, knobs: Knobs) -> str:
                 fired["done"] = True
                 raise SimulatedCrash()
 
-        try:
-            Harness(wh.tools(), ScriptedModel(calls), RunStore(db), fault_hook=hook).start(
-                _agent(len(calls), knobs.max_retries), "probe", run_id="probe")
-        except SimulatedCrash:
-            pass
+        with RunStore(db) as first:
+            try:
+                Harness(wh.tools(), ScriptedModel(calls), first, fault_hook=hook).start(
+                    _agent(len(calls), knobs.max_retries), "probe", run_id="probe")
+            except SimulatedCrash:
+                pass
 
-        store = RunStore(db)  # a new process: the only thing carried over is the log and the warehouse
-        Harness(wh.tools(), ScriptedModel(calls), store, recovery=knobs.policy(),
-                verifier=wh.took_effect).resume(_agent(len(calls), knobs.max_retries), "probe")
+        with RunStore(db) as store:  # a new process: only the log and the warehouse carried over
+            Harness(wh.tools(), ScriptedModel(calls), store, recovery=knobs.policy(),
+                    verifier=wh.took_effect).resume(_agent(len(calls), knobs.max_retries), "probe")
+            paused = store.get_run("probe")["status"] == "needs_review"
 
-        if store.get_run("probe")["status"] == "needs_review":
+        if paused:
             return "paused"  # correct, and costs a person
         extra, missing = compare(wh, calls)
         if extra:

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import sqlite3
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -47,8 +48,16 @@ class Warehouse:
         with self._db() as db:
             db.executescript(SCHEMA)
 
-    def _db(self) -> sqlite3.Connection:
-        return sqlite3.connect(self.path, isolation_level=None)  # one connection per call: tools run in worker threads
+    @contextmanager
+    def _db(self):
+        """One connection per call, because tools run in worker threads, and closed on the way out:
+        `with sqlite3.connect(...)` commits but does not close, and an open file cannot be deleted
+        on Windows."""
+        conn = sqlite3.connect(self.path, isolation_level=None)
+        try:
+            yield conn
+        finally:
+            conn.close()
 
     # ---------------------------------------------------------------- what an auditor would check
     def counts(self) -> dict:
