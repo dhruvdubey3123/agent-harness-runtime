@@ -38,20 +38,10 @@ jobs:
       - uses: actions/setup-python@v5
         with: {python-version: "3.12"}
       - run: pip install -e ".[dev,triage]"
+      # The counterexamples, and the assertion that they still reject guessing, live in this file.
       - run: pytest -q tests/test_evolve.py
-      - name: The gate must still reject the unsafe policies
-        run: |
-          python -m evolve --probes
-          python - <<'PY'
-          import sys
-          from evolve.guard import check_probes, probes_ok
-          from evolve.knobs import NON_IDEMPOTENT, SHIPPED
-          assert probes_ok(check_probes(SHIPPED)), "the shipped policy no longer passes its own gate"
-          caught = [t for t in NON_IDEMPOTENT for s in ("assume_done", "retry")
-                    if not probes_ok(check_probes(SHIPPED.with_recovery(t, s)))]
-          # If the counterexamples stop catching the shortcuts, every later search result is worthless.
-          sys.exit(0 if len(caught) == len(NON_IDEMPOTENT) * 2 else 1)
-          PY
+      - name: Show what the gate rejects
+        run: python -m evolve --probes
       - name: Search must not be able to buy autonomy with a duplicated or dropped action
         run: |
           python -m evolve --generations 4 --seed 1

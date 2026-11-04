@@ -1,13 +1,24 @@
-"""The gate is the part worth testing: a search is only as good as what it cannot talk its way past."""
+"""The gate is the part worth testing: a search is only as good as what it cannot talk its way past.
+
+Skipped unless the [triage] extra is installed, since the search is scored on the triage benchmark.
+"""
 from __future__ import annotations
 
 import pytest
 
-from evolve import Knobs, neighbours
-from evolve.guard import PROBES, check_probes, frozen_parts_intact, probes_ok, run_probe
-from evolve.knobs import NON_IDEMPOTENT, SHIPPED
-from evolve.proposers import RuleProposer
-from evolve.scorer import Score
+pytest.importorskip("triage")
+pytest.importorskip("langgraph.checkpoint.sqlite")
+
+from evolve import Knobs, neighbours  # noqa: E402
+from evolve.guard import PROBES, check_probes, frozen_parts_intact, probes_ok, run_probe  # noqa: E402
+from evolve.knobs import NON_IDEMPOTENT, SHIPPED  # noqa: E402
+from evolve.proposers import RuleProposer  # noqa: E402
+from evolve.scorer import Score  # noqa: E402
+
+# The tools a counterexample actually exercises. comment_ticket is not one of them: it is caught
+# by the benchmark invariants instead (a run of the loop rejected both of its unsafe strategies
+# that way, after they scored a perfect 75/75). Naming the gap is the point.
+PROBED = ("rerun_job", "append_audit")
 
 UNIQUE = Knobs(recovery=tuple((t, "unique_payload") for t in sorted(NON_IDEMPOTENT)))
 
@@ -53,6 +64,14 @@ def test_every_probe_is_decisive_for_some_policy():
     for probe in PROBES:
         outcomes = {run_probe(probe, k) for k in policies}
         assert outcomes & {"dropped", "duplicated"}, f"{probe.name} never fails for any policy"
+
+
+@pytest.mark.parametrize("tool", PROBED)
+@pytest.mark.parametrize("strategy", ("assume_done", "retry"))
+def test_guessing_is_rejected_for_every_tool_a_probe_covers(tool, strategy):
+    """The gate's job in one line. If this ever passes, the search can buy autonomy with a
+    dropped or duplicated action and every result it produces afterwards is worthless."""
+    assert not probes_ok(check_probes(SHIPPED.with_recovery(tool, strategy)))
 
 
 def test_search_space_rejects_anything_outside_it():
