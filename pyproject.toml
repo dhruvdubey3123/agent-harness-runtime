@@ -20,7 +20,7 @@ triage = ["pipeline-triage-graph @ git+https://github.com/dhruvdubey3123/pipelin
 dev = ["pytest>=8", "httpx>=0.27", "mcp>=2.0"]
 
 [tool.setuptools]
-packages = ["harness", "bench", "triage_bridge"]
+packages = ["harness", "bench", "triage_bridge", "evolve"]
 
 [tool.setuptools.package-data]
 triage_bridge = ["data/*"]

@@ -14,6 +14,7 @@ from typing import Callable
 
 from .context import ContextBudget, build_context, est_tokens
 from .model import Model
+from .recovery import RecoveryPolicy, Verifier, decide as decide_recovery
 from .sandbox import Policy, Sandbox
 from .skills import load_skills_index
 from .store import RunStore
@@ -42,6 +43,7 @@ class RunMetrics:
     denials: int = 0
     tool_errors: int = 0
     compactions: int = 0
+    auto_verified: int = 0
     est_context_tokens: list[int] = field(default_factory=list)
     wall_ms: float = 0.0
 
@@ -49,13 +51,16 @@ class RunMetrics:
 class Harness:
     def __init__(self, registry: ToolRegistry, model: Model, store: RunStore | None = None,
                  budget: ContextBudget | None = None, skills_dir: str | None = None,
-                 fault_hook: FaultHook | None = None, sleep: Callable[[float], None] = time.sleep):
+                 fault_hook: FaultHook | None = None, sleep: Callable[[float], None] = time.sleep,
+                 recovery: RecoveryPolicy | None = None, verifier: Verifier | None = None):
         self.registry = registry
         self.model = model
         self.store = store or RunStore()
         self.budget = budget or ContextBudget()
         self.skills_dir = skills_dir
         self.fault_hook = fault_hook
+        self.recovery = recovery or RecoveryPolicy()
+        self.verifier = verifier
         self.sleep = sleep
         self.metrics: dict[str, RunMetrics] = {}
 
@@ -97,13 +102,20 @@ class Harness:
         # Recovery: the crash may have hit while a tool was running or before its result was saved.
         if steps and steps[-1]["status"] in ("started", "dispatched"):
             last = steps[-1]
+            action = "repeat"
             if last["status"] == "dispatched" and not last["idempotent"]:
+                action = decide_recovery(self.recovery, self.verifier, last, steps)
+            if action == "pause":
                 self.store.set_status(run_id, "needs_review",
                                       f"step {last['idx']} ({last['tool']}) was interrupted and is not safe to repeat; "
                                       "check whether it took effect, then mark it done or retry it")
                 m.wall_ms += (time.perf_counter() - t0) * 1000
                 return
-            self._execute(agent, sandbox, run_id, last["idx"], ToolCall(last["tool"], last["args"]), m)
+            if action == "verified_done":
+                m.auto_verified += 1
+                self.store.resolve_review(run_id, last["idx"], True, "verified from the environment, not by a person")
+            else:
+                self._execute(agent, sandbox, run_id, last["idx"], ToolCall(last["tool"], last["args"]), m)
             steps = self.store.steps(run_id)
 
         skills = load_skills_index(self.skills_dir, run["task_kind"]) if self.skills_dir else ""

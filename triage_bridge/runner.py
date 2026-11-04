@@ -16,7 +16,7 @@ from triage.dag import PipelineDAG
 from triage.knowledge import CaseLibrary
 from triage.service import TriageService
 
-from harness import AgentSpec, Harness, Policy, RunStore, ScriptedModel, ToolCall
+from harness import AgentSpec, Harness, Policy, RecoveryPolicy, RunStore, ScriptedModel, ToolCall
 
 from .warehouse import Warehouse
 
@@ -63,8 +63,10 @@ class HarnessExecutor:
         r, cid = self.r, self.case_id
         view = r.service.view(cid)
         calls = plan_to_calls(r.dag, cid, view["category"], plan, view.get("proposal") or "")
-        agent = AgentSpec("fixer", "Apply the approved plan exactly.", Policy(set(TOOLS)), max_steps=len(calls) + 1)
-        h = Harness(r.warehouse.tools(), ScriptedModel(calls), r.store, fault_hook=r.fault_hook)
+        agent = AgentSpec("fixer", "Apply the approved plan exactly.", Policy(set(TOOLS)),
+                          max_steps=len(calls) + 1, max_retries=r.max_retries)
+        h = Harness(r.warehouse.tools(), ScriptedModel(calls), r.store, fault_hook=r.fault_hook,
+                    recovery=r.recovery, verifier=r.warehouse.took_effect)
         rid = f"apply-{cid}"
         if r.store.get_run(rid) is None:
             h.start(agent, f"apply approved fix for {cid}", task_kind="triage_apply", run_id=rid)
@@ -77,13 +79,16 @@ class HarnessExecutor:
 
 
 class TriageInHarness:
-    def __init__(self, workdir: str | Path, fault_hook=None, min_confidence: float = 0.5):
+    def __init__(self, workdir: str | Path, fault_hook=None, min_confidence: float = 0.5,
+                 recovery: RecoveryPolicy | None = None, max_retries: int = 2):
         self.dir = Path(workdir)
         self.dir.mkdir(parents=True, exist_ok=True)
         self.dag = PipelineDAG.from_yaml(DATA / "pipeline.yaml")
         self.warehouse = Warehouse(self.dir / "warehouse.db")
         self.store = RunStore(self.dir / "harness_runs.db")
         self.fault_hook = fault_hook
+        self.recovery = recovery or RecoveryPolicy()
+        self.max_retries = max_retries
         self.executor = HarnessExecutor(self)
         saver = SqliteSaver(sqlite3.connect(str(self.dir / "triage_graph.db"), check_same_thread=False))
         self.service = TriageService(self.dag, CaseLibrary.load(DATA / "case_library.yaml"), executor=self.executor,

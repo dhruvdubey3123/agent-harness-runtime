@@ -18,7 +18,7 @@ import random
 import tempfile
 from pathlib import Path
 
-from harness import Harness, RunStore, ScriptedModel, SimulatedCrash
+from harness import Harness, RecoveryPolicy, RunStore, ScriptedModel, SimulatedCrash
 
 from .runner import DATA, NeedsReview, TriageInHarness, plan_to_calls
 from .warehouse import Warehouse
@@ -36,16 +36,22 @@ def crash_at(step: int, window: str):
     return hook
 
 
-def run(seed: int = 1) -> dict:
+def run(seed: int = 1, recovery: RecoveryPolicy | None = None, min_confidence: float = 0.5,
+        max_retries: int = 2, limit: int | None = None) -> dict:
+    """Crash every approved fix and recover it two ways. `recovery`/`min_confidence`/`max_retries`
+    are the knobs `evolve` searches; their defaults are the shipped configuration."""
     rng = random.Random(seed)
+    cfg = dict(recovery=recovery, min_confidence=min_confidence, max_retries=max_retries)
     incidents = [json.loads(l) for l in (DATA / "incidents.jsonl").read_text().splitlines() if l.strip()]
+    if limit:
+        incidents = incidents[:limit]
     out = {"incidents": len(incidents), "reached_gate": 0, "escalated_by_triage": 0, "gate_matches_label": 0,
            "restart": {"runs_with_duplicate": 0, "duplicate_actions": 0, "runs_exactly_once": 0},
            "resume": {"runs_with_duplicate": 0, "duplicate_actions": 0, "finished_unattended": 0, "stopped_for_review": 0,
-                      "finished": 0, "runs_exactly_once": 0}}
+                      "finished": 0, "runs_exactly_once": 0, "dropped_actions": 0, "paused_on": {}}}
     for inc in incidents:
         with tempfile.TemporaryDirectory() as d:
-            probe = TriageInHarness(Path(d) / "probe")
+            probe = TriageInHarness(Path(d) / "probe", **cfg)
             view = probe.diagnose(inc)
             gated = view.get("waiting_for_human", False)
             out["gate_matches_label"] += gated == (inc["label"]["expected_action"] == "propose")
@@ -58,7 +64,7 @@ def run(seed: int = 1) -> dict:
 
             for strategy in ("restart", "resume"):
                 wd = Path(d) / strategy
-                t = TriageInHarness(wd, fault_hook=crash_at(step, window))
+                t = TriageInHarness(wd, fault_hook=crash_at(step, window), **cfg)
                 t.diagnose(inc)
                 try:
                     t.decide(inc["id"], True, "reviewer")
@@ -70,18 +76,23 @@ def run(seed: int = 1) -> dict:
                     Harness(wh.tools(), ScriptedModel(calls), RunStore()).start(
                         _agent(len(calls)), "re-apply from scratch", run_id="restart")
                 else:
-                    t2 = TriageInHarness(wd)
+                    t2 = TriageInHarness(wd, **cfg)
                     try:
                         v = t2.recover(inc["id"])
                         out["resume"]["finished_unattended"] += 1
                     except NeedsReview as e:
                         out["resume"]["stopped_for_review"] += 1
+                        p = out["resume"]["paused_on"]
+                        p[e.step["tool"]] = p.get(e.step["tool"], 0) + 1
                         v = t2.resolve(inc["id"], t2.warehouse.took_effect(e.step["tool"], e.step["args"]))
                     out["resume"]["finished"] += v.get("outcome") == "resolved"
                 dup = wh.duplicated_actions()
                 out[strategy]["runs_exactly_once"] += exactly_once(wh, calls)
                 out[strategy]["duplicate_actions"] += dup
                 out[strategy]["runs_with_duplicate"] += dup > 0
+                if strategy == "resume":
+                    out["resume"]["dropped_actions"] += missing_actions(wh, calls)
+    out["raw"] = {"reached_gate": out["reached_gate"], "resume": dict(out["resume"]), "restart": dict(out["restart"])}
     n = out["reached_gate"]
     for k in ("runs_with_duplicate", "runs_exactly_once"):
         out["restart"][k] = f'{out["restart"][k]}/{n}'
@@ -90,6 +101,23 @@ def run(seed: int = 1) -> dict:
         out["resume"][k] = f'{out["resume"][k]}/{n}'
     out["gate_matches_label"] = f'{out["gate_matches_label"]}/{out["incidents"]}'
     return out
+
+
+def missing_actions(wh: Warehouse, calls) -> int:
+    """Approved actions the warehouse has no record of. A skipped step is as wrong as a repeated
+    one, and it is the failure mode that guessing 'it probably already ran' produces."""
+    c, missing = wh.counts(), 0
+    want_runs: dict[str, int] = {}
+    for call in calls:
+        if call.tool == "rerun_job":
+            want_runs[call.args["node"]] = want_runs.get(call.args["node"], 0) + 1
+    for node, want in want_runs.items():
+        missing += max(0, want - c["job_runs"].get(node, 0))
+    missing += sum(1 for x in calls if x.tool == "comment_ticket" and c["comments"].get(x.args["case_id"], 0) == 0)
+    missing += sum(1 for x in calls if x.tool == "append_audit" and c["audit_lines"].get(x.args["line"], 0) == 0)
+    missing += sum(1 for x in calls if x.tool == "patch_procedure" and x.args["node"] not in c["patched"])
+    missing += sum(1 for x in calls if x.tool == "refresh_table" and x.args["node"] not in c["refreshed"])
+    return missing
 
 
 def exactly_once(wh: Warehouse, calls) -> bool:

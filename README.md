@@ -122,6 +122,8 @@ is dispatched but before it runs, after it ran but before the log recorded it), 
 
 The 30 pauses are the price: in those runs a non-repeatable action was in flight when the process died, so the harness asks instead
 of guessing. CI runs this benchmark and the kill demo on every push and fails if resume ever duplicates or drops an action.
+[The next section](#tuning-itself-against-its-own-benchmark) is a loop that searched for a safe way to cut those 30 pauses, and got
+them to 0 without duplicating or dropping anything.
 
 Limits: the warehouse is a SQLite stand-in, the reviewer's approval is automatic in the benchmark, and diagnosis uses triage's
 rule-based path (the real-model run above exercises the harness separately).
@@ -131,6 +133,83 @@ pip install -e ".[triage]"
 python -m triage_bridge.demo
 python -m triage_bridge.bench --seed 1
 ```
+
+## Tuning itself against its own benchmark
+
+Those 30 pauses were tuned by hand. `evolve/` makes that a loop instead: it proposes a change to the
+recovery policy, measures it on the same crashed fixes, and keeps it only if the objective went up **and**
+nothing was duplicated or dropped.
+
+```
+shipped config ──► propose ──► score ──► passed the gate and better? ──► new best
+                      ▲                            │ no
+                      └──────── next candidate ◄───┘
+```
+
+The interesting part is not the search, it is what stops it. A loop that can change anything can change the
+thing that judges it, so:
+
+* **It can only move a typed record**, never code: a recovery strategy per non-repeatable tool, the retry
+  limit, the gate's confidence threshold. Anything else is rejected before it is scored.
+* **Frozen:** the tool allowlists, which tools are marked safe to repeat, the human gate, the benchmark and
+  its labels, and the gate's own checks.
+* **Nothing merges itself.** A run writes a ledger and a person reads it.
+
+### The benchmark alone is not a good enough judge
+
+None of the 100 incidents happens to contain a plan that runs the same job twice, so a policy that is wrong
+in exactly that case would score perfectly. Four hand-written counterexamples cover it, each built to break a
+specific shortcut:
+
+| Policy for a non-repeatable step left in flight | same job twice, killed before the 2nd run | same job twice, killed after it | one-off action, killed before | after |
+|---|---|---|---|---|
+| `pause` (shipped) | paused | paused | paused | paused |
+| `unique_payload` | paused | paused | **clean** | **clean** |
+| `assume_done` | **dropped** | clean | paused | paused |
+| `retry` | clean | **duplicated** | paused | paused |
+
+`unique_payload` asks the warehouse whether this exact call is recorded there, but only when no earlier step
+in the same run made an identical call: without that guard it would read the earlier call's trace as evidence
+for this one and silently skip a job. `assume_done` and `retry` exist so the search space contains wrong
+answers; a gate that cannot reject anything is not a gate. A test asserts both are still caught, because if
+they stop being caught every later result is worthless.
+
+### What one run found
+
+![The loop cut human interruptions after a crash from 30 to 0, and the gate rejected four candidates including two that scored a perfect 75/75](docs/evolve.png)
+
+`python -m evolve --generations 9 --seed 1`, 10 configurations on the same 75 crashed fixes:
+
+| Configuration | Finished without a person | Duplicated | Dropped | Verdict |
+|---|---|---|---|---|
+| all tools pause (shipped) | 45 / 75 | 0 | 0 | baseline |
+| `rerun_job` verified | 57 / 75 | 0 | 0 | better |
+| `+ comment_ticket` | 67 / 75 | 0 | 0 | better |
+| **`+ append_audit`** | **75 / 75** | **0** | **0** | **kept** |
+| `rerun_job=assume_done` | not scored | | | rejected by a counterexample |
+| `rerun_job=retry` | not scored | | | rejected by a counterexample |
+| `comment_ticket=assume_done` | 75 / 75 | 0 | **5** | rejected: dropped 5 actions |
+| `comment_ticket=retry` | 75 / 75 | **5** | 0 | rejected: duplicated 5 actions |
+
+**Human interruptions after a crash went from 30 to 0 with nothing duplicated and nothing dropped.** The last
+two rows are the reason the gate exists: both hit a perfect score on the thing being optimised, by quietly
+skipping or repeating five real actions. The objective alone would have accepted either.
+
+Honest about what that 100% means: no plan in these 100 incidents runs the same action twice, so every
+interrupted step was uniquely identifiable and the warehouse could be asked about it. The counterexamples
+show the policy going straight back to pausing the moment a plan does repeat one. The verifier is a query
+against the system of record, the same check an on-call engineer makes by hand, not an oracle.
+
+```bash
+python -m evolve --probes                  # just the counterexamples
+python -m evolve --generations 9           # the loop, ledger in evolve/results/
+python -m evolve --proposer model          # the proposer is a local model (needs Ollama)
+```
+
+With `--proposer model` the proposer is itself an agent inside this harness, holding one tool and nothing
+else in its allowlist, so its suggestion comes back as a `propose_change` call and faces the same gate as
+any other candidate. CI runs the counterexamples, asserts they still catch both unsafe strategies, and runs
+a short search that fails if the winner ever duplicates or drops an action.
 
 ## Tested with a real open-weight model
 
@@ -226,6 +305,8 @@ Service and the distillation CronJob.
 ## Status
 
 Built and tested, including one end-to-end run with a real open-weight model (Qwen3 8B, above). Not yet
-battle-tested at scale. The triage agent now runs inside it (above). A Postgres store, OpenTelemetry spans and a self-improving harness loop are next.
+battle-tested at scale. The triage agent runs inside it, and the harness now tunes its own recovery policy
+against its benchmark behind a gate that rejected 4 of 10 candidates (both above). A Postgres store and
+distributed tracing are next.
 
 MIT licensed.

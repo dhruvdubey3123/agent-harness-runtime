@@ -5,6 +5,7 @@ COPY pyproject.toml README.md ./
 COPY harness harness
 COPY bench bench
 COPY triage_bridge triage_bridge
+COPY evolve evolve
 RUN pip install --no-cache-dir --prefix=/install ".[mcp,llm]"
 
 FROM python:3.12-slim

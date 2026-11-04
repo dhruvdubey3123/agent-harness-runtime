@@ -1,0 +1,479 @@
+{
+  "proposer": "rules",
+  "generations": 9,
+  "candidates_scored": 10,
+  "candidates_rejected_by_the_gate": 4,
+  "frozen_during_the_search": [
+    "the tool allowlist each agent gets (harness.Policy)",
+    "which tools are marked idempotent (triage_bridge.warehouse)",
+    "the human approval gate and its position in the graph",
+    "the benchmark, its incidents and their labels",
+    "the safety invariants and the counterexample probes in evolve.guard"
+  ],
+  "baseline": {
+    "knobs": {
+      "recovery": {},
+      "max_retries": 2,
+      "min_confidence": 0.5
+    },
+    "unattended": 45,
+    "reached_gate": 75,
+    "paused": 30,
+    "duplicates": 0,
+    "dropped": 0,
+    "objective": 0.6,
+    "probes": {
+      "repeated_action_never_ran": "paused",
+      "repeated_action_already_ran": "paused",
+      "unique_action_never_ran": "paused",
+      "unique_action_already_ran": "paused"
+    },
+    "invariants": {
+      "no_duplicated_actions": true,
+      "no_dropped_actions": true,
+      "every_run_exactly_once": true,
+      "every_run_finished": true,
+      "gate_accuracy_not_reduced": true
+    },
+    "frozen": {
+      "knobs_within_declared_space": true,
+      "only_non_idempotent_tools_touched": true
+    },
+    "paused_on": {
+      "rerun_job": 12,
+      "append_audit": 8,
+      "comment_ticket": 10
+    },
+    "ok": true,
+    "rejected_for": [],
+    "seconds": 26.1
+  },
+  "best": {
+    "knobs": {
+      "recovery": {
+        "append_audit": "unique_payload",
+        "comment_ticket": "unique_payload",
+        "rerun_job": "unique_payload"
+      },
+      "max_retries": 2,
+      "min_confidence": 0.5
+    },
+    "unattended": 75,
+    "reached_gate": 75,
+    "paused": 0,
+    "duplicates": 0,
+    "dropped": 0,
+    "objective": 1.0,
+    "probes": {
+      "repeated_action_never_ran": "paused",
+      "repeated_action_already_ran": "paused",
+      "unique_action_never_ran": "clean",
+      "unique_action_already_ran": "clean"
+    },
+    "invariants": {
+      "no_duplicated_actions": true,
+      "no_dropped_actions": true,
+      "every_run_exactly_once": true,
+      "every_run_finished": true,
+      "gate_accuracy_not_reduced": true
+    },
+    "frozen": {
+      "knobs_within_declared_space": true,
+      "only_non_idempotent_tools_touched": true
+    },
+    "paused_on": {},
+    "ok": true,
+    "rejected_for": [],
+    "seconds": 24.4
+  },
+  "moved": {
+    "unattended": "45 -> 75 of 75",
+    "objective": "60% -> 100%",
+    "duplicated_actions": "0 -> 0",
+    "dropped_actions": "0 -> 0"
+  },
+  "history": [
+    {
+      "knobs": {
+        "recovery": {},
+        "max_retries": 2,
+        "min_confidence": 0.5
+      },
+      "unattended": 45,
+      "reached_gate": 75,
+      "paused": 30,
+      "duplicates": 0,
+      "dropped": 0,
+      "objective": 0.6,
+      "probes": {
+        "repeated_action_never_ran": "paused",
+        "repeated_action_already_ran": "paused",
+        "unique_action_never_ran": "paused",
+        "unique_action_already_ran": "paused"
+      },
+      "invariants": {
+        "no_duplicated_actions": true,
+        "no_dropped_actions": true,
+        "every_run_exactly_once": true,
+        "every_run_finished": true,
+        "gate_accuracy_not_reduced": true
+      },
+      "frozen": {
+        "knobs_within_declared_space": true,
+        "only_non_idempotent_tools_touched": true
+      },
+      "paused_on": {
+        "rerun_job": 12,
+        "append_audit": 8,
+        "comment_ticket": 10
+      },
+      "ok": true,
+      "rejected_for": [],
+      "seconds": 26.1
+    },
+    {
+      "knobs": {
+        "recovery": {
+          "rerun_job": "unique_payload"
+        },
+        "max_retries": 2,
+        "min_confidence": 0.5
+      },
+      "unattended": 57,
+      "reached_gate": 75,
+      "paused": 18,
+      "duplicates": 0,
+      "dropped": 0,
+      "objective": 0.76,
+      "probes": {
+        "repeated_action_never_ran": "paused",
+        "repeated_action_already_ran": "paused",
+        "unique_action_never_ran": "paused",
+        "unique_action_already_ran": "paused"
+      },
+      "invariants": {
+        "no_duplicated_actions": true,
+        "no_dropped_actions": true,
+        "every_run_exactly_once": true,
+        "every_run_finished": true,
+        "gate_accuracy_not_reduced": true
+      },
+      "frozen": {
+        "knobs_within_declared_space": true,
+        "only_non_idempotent_tools_touched": true
+      },
+      "paused_on": {
+        "append_audit": 8,
+        "comment_ticket": 10
+      },
+      "ok": true,
+      "rejected_for": [],
+      "seconds": 26.5
+    },
+    {
+      "knobs": {
+        "recovery": {
+          "comment_ticket": "unique_payload",
+          "rerun_job": "unique_payload"
+        },
+        "max_retries": 2,
+        "min_confidence": 0.5
+      },
+      "unattended": 67,
+      "reached_gate": 75,
+      "paused": 8,
+      "duplicates": 0,
+      "dropped": 0,
+      "objective": 0.8933,
+      "probes": {
+        "repeated_action_never_ran": "paused",
+        "repeated_action_already_ran": "paused",
+        "unique_action_never_ran": "paused",
+        "unique_action_already_ran": "paused"
+      },
+      "invariants": {
+        "no_duplicated_actions": true,
+        "no_dropped_actions": true,
+        "every_run_exactly_once": true,
+        "every_run_finished": true,
+        "gate_accuracy_not_reduced": true
+      },
+      "frozen": {
+        "knobs_within_declared_space": true,
+        "only_non_idempotent_tools_touched": true
+      },
+      "paused_on": {
+        "append_audit": 8
+      },
+      "ok": true,
+      "rejected_for": [],
+      "seconds": 26.5
+    },
+    {
+      "knobs": {
+        "recovery": {
+          "append_audit": "unique_payload",
+          "comment_ticket": "unique_payload",
+          "rerun_job": "unique_payload"
+        },
+        "max_retries": 2,
+        "min_confidence": 0.5
+      },
+      "unattended": 75,
+      "reached_gate": 75,
+      "paused": 0,
+      "duplicates": 0,
+      "dropped": 0,
+      "objective": 1.0,
+      "probes": {
+        "repeated_action_never_ran": "paused",
+        "repeated_action_already_ran": "paused",
+        "unique_action_never_ran": "clean",
+        "unique_action_already_ran": "clean"
+      },
+      "invariants": {
+        "no_duplicated_actions": true,
+        "no_dropped_actions": true,
+        "every_run_exactly_once": true,
+        "every_run_finished": true,
+        "gate_accuracy_not_reduced": true
+      },
+      "frozen": {
+        "knobs_within_declared_space": true,
+        "only_non_idempotent_tools_touched": true
+      },
+      "paused_on": {},
+      "ok": true,
+      "rejected_for": [],
+      "seconds": 24.4
+    },
+    {
+      "knobs": {
+        "recovery": {
+          "append_audit": "unique_payload",
+          "comment_ticket": "unique_payload"
+        },
+        "max_retries": 2,
+        "min_confidence": 0.5
+      },
+      "unattended": 63,
+      "reached_gate": 75,
+      "paused": 12,
+      "duplicates": 0,
+      "dropped": 0,
+      "objective": 0.84,
+      "probes": {
+        "repeated_action_never_ran": "paused",
+        "repeated_action_already_ran": "paused",
+        "unique_action_never_ran": "clean",
+        "unique_action_already_ran": "clean"
+      },
+      "invariants": {
+        "no_duplicated_actions": true,
+        "no_dropped_actions": true,
+        "every_run_exactly_once": true,
+        "every_run_finished": true,
+        "gate_accuracy_not_reduced": true
+      },
+      "frozen": {
+        "knobs_within_declared_space": true,
+        "only_non_idempotent_tools_touched": true
+      },
+      "paused_on": {
+        "rerun_job": 12
+      },
+      "ok": true,
+      "rejected_for": [],
+      "seconds": 24.2
+    },
+    {
+      "knobs": {
+        "recovery": {
+          "append_audit": "unique_payload",
+          "comment_ticket": "unique_payload",
+          "rerun_job": "assume_done"
+        },
+        "max_retries": 2,
+        "min_confidence": 0.5
+      },
+      "unattended": 0,
+      "reached_gate": 0,
+      "paused": 0,
+      "duplicates": 0,
+      "dropped": 0,
+      "objective": 0.0,
+      "probes": {
+        "repeated_action_never_ran": "dropped",
+        "repeated_action_already_ran": "clean",
+        "unique_action_never_ran": "clean",
+        "unique_action_already_ran": "clean"
+      },
+      "invariants": {},
+      "frozen": {
+        "knobs_within_declared_space": true,
+        "only_non_idempotent_tools_touched": true
+      },
+      "paused_on": {},
+      "ok": false,
+      "rejected_for": [
+        "probe repeated_action_never_ran -> dropped"
+      ],
+      "seconds": 0.1
+    },
+    {
+      "knobs": {
+        "recovery": {
+          "append_audit": "unique_payload",
+          "comment_ticket": "unique_payload",
+          "rerun_job": "retry"
+        },
+        "max_retries": 2,
+        "min_confidence": 0.5
+      },
+      "unattended": 0,
+      "reached_gate": 0,
+      "paused": 0,
+      "duplicates": 0,
+      "dropped": 0,
+      "objective": 0.0,
+      "probes": {
+        "repeated_action_never_ran": "clean",
+        "repeated_action_already_ran": "duplicated",
+        "unique_action_never_ran": "clean",
+        "unique_action_already_ran": "clean"
+      },
+      "invariants": {},
+      "frozen": {
+        "knobs_within_declared_space": true,
+        "only_non_idempotent_tools_touched": true
+      },
+      "paused_on": {},
+      "ok": false,
+      "rejected_for": [
+        "probe repeated_action_already_ran -> duplicated"
+      ],
+      "seconds": 0.2
+    },
+    {
+      "knobs": {
+        "recovery": {
+          "append_audit": "unique_payload",
+          "rerun_job": "unique_payload"
+        },
+        "max_retries": 2,
+        "min_confidence": 0.5
+      },
+      "unattended": 65,
+      "reached_gate": 75,
+      "paused": 10,
+      "duplicates": 0,
+      "dropped": 0,
+      "objective": 0.8667,
+      "probes": {
+        "repeated_action_never_ran": "paused",
+        "repeated_action_already_ran": "paused",
+        "unique_action_never_ran": "clean",
+        "unique_action_already_ran": "clean"
+      },
+      "invariants": {
+        "no_duplicated_actions": true,
+        "no_dropped_actions": true,
+        "every_run_exactly_once": true,
+        "every_run_finished": true,
+        "gate_accuracy_not_reduced": true
+      },
+      "frozen": {
+        "knobs_within_declared_space": true,
+        "only_non_idempotent_tools_touched": true
+      },
+      "paused_on": {
+        "comment_ticket": 10
+      },
+      "ok": true,
+      "rejected_for": [],
+      "seconds": 26.1
+    },
+    {
+      "knobs": {
+        "recovery": {
+          "append_audit": "unique_payload",
+          "comment_ticket": "assume_done",
+          "rerun_job": "unique_payload"
+        },
+        "max_retries": 2,
+        "min_confidence": 0.5
+      },
+      "unattended": 75,
+      "reached_gate": 75,
+      "paused": 0,
+      "duplicates": 0,
+      "dropped": 5,
+      "objective": 1.0,
+      "probes": {
+        "repeated_action_never_ran": "paused",
+        "repeated_action_already_ran": "paused",
+        "unique_action_never_ran": "clean",
+        "unique_action_already_ran": "clean"
+      },
+      "invariants": {
+        "no_duplicated_actions": true,
+        "no_dropped_actions": false,
+        "every_run_exactly_once": false,
+        "every_run_finished": true,
+        "gate_accuracy_not_reduced": true
+      },
+      "frozen": {
+        "knobs_within_declared_space": true,
+        "only_non_idempotent_tools_touched": true
+      },
+      "paused_on": {},
+      "ok": false,
+      "rejected_for": [
+        "invariant no_dropped_actions",
+        "invariant every_run_exactly_once"
+      ],
+      "seconds": 23.0
+    },
+    {
+      "knobs": {
+        "recovery": {
+          "append_audit": "unique_payload",
+          "comment_ticket": "retry",
+          "rerun_job": "unique_payload"
+        },
+        "max_retries": 2,
+        "min_confidence": 0.5
+      },
+      "unattended": 75,
+      "reached_gate": 75,
+      "paused": 0,
+      "duplicates": 5,
+      "dropped": 0,
+      "objective": 1.0,
+      "probes": {
+        "repeated_action_never_ran": "paused",
+        "repeated_action_already_ran": "paused",
+        "unique_action_never_ran": "clean",
+        "unique_action_already_ran": "clean"
+      },
+      "invariants": {
+        "no_duplicated_actions": false,
+        "no_dropped_actions": true,
+        "every_run_exactly_once": false,
+        "every_run_finished": true,
+        "gate_accuracy_not_reduced": true
+      },
+      "frozen": {
+        "knobs_within_declared_space": true,
+        "only_non_idempotent_tools_touched": true
+      },
+      "paused_on": {},
+      "ok": false,
+      "rejected_for": [
+        "invariant no_duplicated_actions",
+        "invariant every_run_exactly_once"
+      ],
+      "seconds": 23.4
+    }
+  ]
+}

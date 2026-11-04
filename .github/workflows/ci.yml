@@ -31,6 +31,33 @@ jobs:
           python -c "import json,sys; r=json.load(open('triage_bridge/bench_results.json')); n=r['reached_gate']; ok=r['resume']['runs_with_duplicate'].startswith('0/') and r['resume']['runs_exactly_once']==f'{n}/{n}'; sys.exit(0 if ok else 1)"
       - name: Real process kill and recovery
         run: python -m triage_bridge.demo
+  evolve:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: pip install -e ".[dev,triage]"
+      - run: pytest -q tests/test_evolve.py
+      - name: The gate must still reject the unsafe policies
+        run: |
+          python -m evolve --probes
+          python - <<'PY'
+          import sys
+          from evolve.guard import check_probes, probes_ok
+          from evolve.knobs import NON_IDEMPOTENT, SHIPPED
+          assert probes_ok(check_probes(SHIPPED)), "the shipped policy no longer passes its own gate"
+          caught = [t for t in NON_IDEMPOTENT for s in ("assume_done", "retry")
+                    if not probes_ok(check_probes(SHIPPED.with_recovery(t, s)))]
+          # If the counterexamples stop catching the shortcuts, every later search result is worthless.
+          sys.exit(0 if len(caught) == len(NON_IDEMPOTENT) * 2 else 1)
+          PY
+      - name: Search must not be able to buy autonomy with a duplicated or dropped action
+        run: |
+          python -m evolve --generations 4 --seed 1
+          python -c "import json,sys; l=json.load(open('evolve/results/history.json')); b=l['best']; sys.exit(0 if b['duplicates']==0 and b['dropped']==0 and b['ok'] else 1)"
+      - uses: actions/upload-artifact@v4
+        with: {name: evolve-ledger, path: evolve/results/}
   docker:
     needs: test
     runs-on: ubuntu-latest
