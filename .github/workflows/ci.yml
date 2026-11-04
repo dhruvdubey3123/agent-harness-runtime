@@ -17,6 +17,20 @@ jobs:
           python -c "import json,sys; r=json.load(open('bench/results.json'))['resume']; sys.exit(0 if r['runs_with_duplicated_side_effect'].startswith('0/') else 1)"
       - uses: actions/upload-artifact@v4
         with: {name: bench-results, path: bench/results.json}
+  triage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: pip install -e ".[dev,triage]"
+      - run: pytest -q tests/test_triage_bridge.py
+      - name: Triage-in-harness benchmark (resume must apply every approved fix exactly once)
+        run: |
+          python -m triage_bridge.bench --seed 1
+          python -c "import json,sys; r=json.load(open('triage_bridge/bench_results.json')); n=r['reached_gate']; ok=r['resume']['runs_with_duplicate'].startswith('0/') and r['resume']['runs_exactly_once']==f'{n}/{n}'; sys.exit(0 if ok else 1)"
+      - name: Real process kill and recovery
+        run: python -m triage_bridge.demo
   docker:
     needs: test
     runs-on: ubuntu-latest

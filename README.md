@@ -90,6 +90,48 @@ CI reruns the benchmark on every push and fails if resume ever produces a duplic
 
 Reproduce: `python -m bench.crash_bench --trials 200 --seed 1`
 
+## Running the triage agent inside the harness
+
+[pipeline-triage-graph](https://github.com/dhruvdubey3123/pipeline-triage-graph) decides *what* to fix and waits for a person to
+approve it. `triage_bridge/` makes this harness the thing that *applies* the approved fix, through triage's own `Executor`
+extension point. Both halves keep their state in SQLite (LangGraph's `SqliteSaver` for the graph, the run log for the harness),
+so the process can be killed at any moment and a new process carries on.
+
+![Triage inside the harness: 0 of 75 approved fixes duplicated an action after a crash, versus 61 of 75 when restarted](docs/triage_in_harness.png)
+
+* **Only the approved plan can run.** The fixer's "model" is the plan itself, so nothing the reviewer did not see can happen.
+* **Every action declares whether it is safe to repeat.** Patching a procedure (`CREATE OR REPLACE`) and rebuilding a table are;
+  re-running a load, commenting on the ticket and writing the audit line are not.
+* **A real `kill -9`.** `python -m triage_bridge.demo` runs each step as a separate process and kills one with `os._exit(137)`
+  right after it re-ran a job. The new process stops for review, a person confirms the job ran, and the fix finishes with every
+  action exactly once. Restarting the plan from the top re-runs the job a second time. Output: [triage_bridge/demo_output.txt](triage_bridge/demo_output.txt).
+
+### Measured across the triage eval set
+
+`python -m triage_bridge.bench --seed 1` takes all 100 labelled incidents. Triage sends 75 to the human gate and escalates 25, matching
+the labels 100/100. Each of the 75 approved fixes is killed at a random step, in one of three windows (before the tool runs, after it
+is dispatched but before it runs, after it ran but before the log recorded it), then recovered two ways.
+
+| After the crash | Restart the approved plan from the top | Harness resume |
+|---|---|---|
+| Fixes that duplicated an action (extra load run, comment or audit line) | 61 / 75 | **0 / 75** |
+| Duplicated actions in total | 95 | **0** |
+| Fixes where every action happened exactly once | 14 / 75 | **75 / 75** |
+| Finished without asking anyone | 75 / 75 | 45 / 75 |
+| Paused for one human check | 0 | 30 / 75 |
+
+The 30 pauses are the price: in those runs a non-repeatable action was in flight when the process died, so the harness asks instead
+of guessing. CI runs this benchmark and the kill demo on every push and fails if resume ever duplicates or drops an action.
+
+Limits: the warehouse is a SQLite stand-in, the reviewer's approval is automatic in the benchmark, and diagnosis uses triage's
+rule-based path (the real-model run above exercises the harness separately).
+
+```bash
+pip install -e ".[triage]"
+python -m triage_bridge.demo
+python -m triage_bridge.bench --seed 1
+```
+
 ## Tested with a real open-weight model
 
 `examples/real_model.py` against **Qwen3 8B** served by Ollama on a laptop CPU: **4 of 4 checks passed** in 201 s.
@@ -104,7 +146,7 @@ Reproduce: `python -m bench.crash_bench --trials 200 --seed 1`
 
 ```bash
 pip install -e ".[dev]"
-pytest -q                          # 21 tests
+pytest -q                          # 21 tests, 28 with the [triage] extra
 python examples/quickstart.py      # run, crash at step 2, resume from the log
 ```
 
@@ -184,6 +226,6 @@ Service and the distillation CronJob.
 ## Status
 
 Built and tested, including one end-to-end run with a real open-weight model (Qwen3 8B, above). Not yet
-battle-tested at scale. A Postgres store, OpenTelemetry spans and running the triage agent inside the harness are next.
+battle-tested at scale. The triage agent now runs inside it (above). A Postgres store, OpenTelemetry spans and a self-improving harness loop are next.
 
 MIT licensed.

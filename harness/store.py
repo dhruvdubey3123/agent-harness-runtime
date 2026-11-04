@@ -77,6 +77,19 @@ class RunStore:
         self.db.execute("update steps set status=?, result=?, error=?, finished=? where run_id=? and idx=?",
                         ("error" if error else "done", json.dumps(result, default=str), error, time.time(), run_id, idx))
 
+    def resolve_review(self, run_id: str, idx: int, took_effect: bool, note: str = "") -> None:
+        """A person checked a step the harness refused to guess about.
+
+        took_effect=True records it as done, so resume moves past it. False puts it back to
+        'started' (it never ran), so resume runs it once.
+        """
+        if took_effect:
+            self.db.execute("update steps set status='done', result=?, finished=? where run_id=? and idx=?",
+                            (json.dumps(note or "confirmed by a person"), time.time(), run_id, idx))
+        else:
+            self.db.execute("update steps set status='started' where run_id=? and idx=?", (run_id, idx))
+        self.db.execute("update runs set status='running', updated=? where id=?", (time.time(), run_id))
+
     def steps(self, run_id: str) -> list[dict]:
         rows = self.db.execute("select * from steps where run_id=? order by idx", (run_id,)).fetchall()
         out = []

@@ -1,0 +1,37 @@
+Incident SYN-007, workdir <tmp>
+
+$ 1. triage diagnoses the incident and pauses at the human gate
+  triage: root cause sp_fill_rate (schema_drift, confidence 0.66)
+  proposal: Update sp_fill_rate to match the changed upstream contract (cause: load_cases); add a backward-compatible alias, then re-run sp_fill_rate and refresh fct_workforce, rpt_workforce.
+  plan: ['fix sp_fill_rate', 'refresh fct_workforce', 'refresh rpt_workforce']
+  waiting for a person: True
+
+$ 2. a person approves; the harness starts applying the fix ... and the process is killed
+  !! process killed (exit 137) during rerun_job, window=after_tool
+  (exit code 137)
+
+$ 3. what survived the crash
+  harness run log (running):
+    0 patch_procedure sp_fill_rate     done
+    1 rerun_job       sp_fill_rate     dispatched
+  warehouse: job runs {'sp_fill_rate': 1}, ticket comments {}, audit lines 0, duplicated actions 0
+
+$ 4. a NEW process recovers from the logs
+  harness stopped: rerun_job(sp_fill_rate) was dispatched when the process died and is not safe to repeat -> needs_review
+
+$ 5. a person checks that one step, and the run finishes
+  a person checks the warehouse: did rerun_job(sp_fill_rate) happen? yes
+  outcome: resolved
+
+$ 6. end state
+  harness run log (done):
+    0 patch_procedure sp_fill_rate     done
+    1 rerun_job       sp_fill_rate     done
+    2 refresh_table   fct_workforce    done
+    3 refresh_table   rpt_workforce    done
+    4 comment_ticket  SYN-007          done
+    5 append_audit                     done
+  warehouse: job runs {'sp_fill_rate': 1}, ticket comments {'SYN-007': 1}, audit lines 1, duplicated actions 0
+
+$ for comparison: the same crash, recovered by running the approved plan again from the top
+  warehouse: job runs {'sp_fill_rate': 2}, ticket comments {'SYN-007': 1}, audit lines 1, duplicated actions 1

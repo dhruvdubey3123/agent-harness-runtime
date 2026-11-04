@@ -1,0 +1,19 @@
+{
+  "incidents": 100,
+  "reached_gate": 75,
+  "escalated_by_triage": 25,
+  "gate_matches_label": "100/100",
+  "restart": {
+    "runs_with_duplicate": "61/75",
+    "duplicate_actions": 95,
+    "runs_exactly_once": "14/75"
+  },
+  "resume": {
+    "runs_with_duplicate": "0/75",
+    "duplicate_actions": 0,
+    "finished_unattended": "45/75",
+    "stopped_for_review": "30/75",
+    "finished": "75/75",
+    "runs_exactly_once": "75/75"
+  }
+}
