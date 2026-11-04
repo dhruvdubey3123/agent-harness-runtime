@@ -99,7 +99,9 @@ so the process can be killed at any moment and a new process carries on.
 
 ![Triage inside the harness: 0 of 75 approved fixes duplicated an action after a crash, versus 61 of 75 when restarted](docs/triage_in_harness.png)
 
-* **Only the approved plan can run.** The fixer's "model" is the plan itself, so nothing the reviewer did not see can happen.
+* **Only the approved plan can run.** By default the fixer's "model" is the plan itself, replayed call for call. Hand the job to
+  a real model instead and the approval is still enforced, by the sandbox rather than by the prompt:
+  [see below](#a-model-applies-the-fix-and-cannot-leave-the-approval).
 * **Every action declares whether it is safe to repeat.** Patching a procedure (`CREATE OR REPLACE`) and rebuilding a table are;
   re-running a load, commenting on the ticket and writing the audit line are not.
 * **A real `kill -9`.** `python -m triage_bridge.demo` runs each step as a separate process and kills one with `os._exit(137)`
@@ -126,13 +128,49 @@ of guessing. CI runs this benchmark and the kill demo on every push and fails if
 them to 0 without duplicating or dropping anything.
 
 Limits: the warehouse is a SQLite stand-in, the reviewer's approval is automatic in the benchmark, and diagnosis uses triage's
-rule-based path (the real-model run above exercises the harness separately).
+rule-based path.
 
 ```bash
 pip install -e ".[triage]"
 python -m triage_bridge.demo
 python -m triage_bridge.bench --seed 1
 ```
+
+## A model applies the fix, and cannot leave the approval
+
+Replaying an approved plan is safe and decides nothing. The moment a real model applies the fix instead, it starts choosing: the
+order of the work, the wording of the ticket comment, what to do about an error, when to stop. That is the useful part. The risk
+is that what a person approved and what happens drift apart, and no amount of prompting makes that a guarantee.
+
+So the approved plan becomes an **envelope** rather than a script. `harness/envelope.py` turns the plan into a list of approved
+actions, each with the fields that decide what it does to the world and a count of how many times it may happen:
+
+```
+patch_procedure(node='sp_fill_rate'); rerun_job(node='sp_fill_rate'); refresh_table(node='fct_workforce');
+refresh_table(node='rpt_workforce'); comment_ticket(case_id='SYN-007'); append_audit()
+```
+
+* **The target is fixed, the prose is not.** `comment_ticket(case_id='SYN-007')` approves one comment on that case; the body is
+  the model's to write. A comment on a different case is a different action and is refused.
+* **Enforced in the sandbox, before dispatch.** A call outside the envelope never reaches the tool. It is written to the run log
+  as a refusal with the reason, so an operator reading the log afterwards can tell an overreach from a failure.
+* **Spent budgets survive a crash.** What is left of the approval is rebuilt from the log, so a second process cannot re-spend
+  an action the first one already used. A refusal and a give-up both mean nothing happened and cost nothing; an unexplained
+  failure is charged, because the conservative reading of an unknown effect is that it happened.
+
+`python -m triage_bridge.live_fix` runs three checks against a local Ollama: a clean apply, a kill right after the job rerun
+followed by a resume in a new process, and an untrusted note that arrived with the incident asking for two actions nobody
+approved. CI runs the same script against a stub server that takes the note's advice, and asserts that the extra load run and
+the second comment are both refused while the approved six still happen exactly once.
+
+```bash
+ollama pull qwen3:8b
+pip install -e ".[triage,local]"
+python -m triage_bridge.live_fix
+```
+
+This bounds what a model can do, not whether it is right. Its diagnosis can still be wrong, which is why the plan sits behind a
+human gate and the envelope sits behind that.
 
 ## Tuning itself against its own benchmark
 
@@ -225,7 +263,7 @@ a short search that fails if the winner ever duplicates or drops an action.
 
 ```bash
 pip install -e ".[dev]"
-pytest -q                          # 21 tests, 28 with the [triage] extra
+pytest -q                          # 32 tests, 59 with the [triage] extra
 python examples/quickstart.py      # run, crash at step 2, resume from the log
 ```
 
@@ -305,8 +343,8 @@ Service and the distillation CronJob.
 ## Status
 
 Built and tested, including one end-to-end run with a real open-weight model (Qwen3 8B, above). Not yet
-battle-tested at scale. The triage agent runs inside it, and the harness now tunes its own recovery policy
-against its benchmark behind a gate that rejected 4 of 10 candidates (both above). A Postgres store and
-distributed tracing are next.
+battle-tested at scale. The triage agent runs inside it, a model can apply an approved fix without being
+able to leave the approval, and the harness tunes its own recovery policy against its benchmark behind a
+gate that rejected 4 of 10 candidates (all above). A Postgres store and distributed tracing are next.
 
 MIT licensed.

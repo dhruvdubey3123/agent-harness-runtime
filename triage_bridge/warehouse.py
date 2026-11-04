@@ -62,6 +62,13 @@ class Warehouse:
                 "refreshed": [r[0] for r in q("select node from refreshes")],
             }
 
+    def texts(self) -> dict:
+        """The wording a fixer chose. With a real model applying the plan, this is the model's own
+        writing, which is the part of the job an approval does not fix in advance."""
+        with self._db() as db:
+            return {"comments": [r[0] for r in db.execute("select body from comments")],
+                    "audit": [r[0] for r in db.execute("select line from audit")]}
+
     def duplicated_actions(self) -> int:
         """Side effects that happened more than once: extra load runs, extra comments, extra audit lines."""
         c = self.counts()

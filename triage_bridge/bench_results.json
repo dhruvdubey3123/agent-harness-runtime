@@ -14,6 +14,34 @@
     "finished_unattended": "45/75",
     "stopped_for_review": "30/75",
     "finished": "75/75",
-    "runs_exactly_once": "75/75"
+    "runs_exactly_once": "75/75",
+    "dropped_actions": 0,
+    "paused_on": {
+      "rerun_job": 12,
+      "append_audit": 8,
+      "comment_ticket": 10
+    }
+  },
+  "raw": {
+    "reached_gate": 75,
+    "resume": {
+      "runs_with_duplicate": 0,
+      "duplicate_actions": 0,
+      "finished_unattended": 45,
+      "stopped_for_review": 30,
+      "finished": 75,
+      "runs_exactly_once": 75,
+      "dropped_actions": 0,
+      "paused_on": {
+        "rerun_job": 12,
+        "append_audit": 8,
+        "comment_ticket": 10
+      }
+    },
+    "restart": {
+      "runs_with_duplicate": 61,
+      "duplicate_actions": 95,
+      "runs_exactly_once": 14
+    }
   }
 }

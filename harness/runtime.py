@@ -19,7 +19,7 @@ from .sandbox import Policy, Sandbox
 from .skills import load_skills_index
 from .store import RunStore
 from .tools import ToolRegistry
-from .types import Finish, RetryableToolError, ToolCall, ToolDenied
+from .types import DENIED, GAVE_UP, Finish, RetryableToolError, ToolCall, ToolDenied
 
 FaultHook = Callable[[str, int, ToolCall], None]
 
@@ -93,9 +93,7 @@ class Harness:
         sandbox = Sandbox(self.registry, agent.policy)
         run = self.store.get_run(run_id)
         steps = self.store.steps(run_id)
-        for s in steps:  # rebuild per-tool call budgets from the log
-            if s["status"] in ("done", "error"):
-                sandbox.calls[s["tool"]] = sandbox.calls.get(s["tool"], 0) + 1
+        sandbox.restore(steps)  # per-tool call budgets, and the approved plan, as the log left them
         if resuming:
             m.replayed_from_log += sum(1 for s in steps if s["status"] in ("done", "error"))
 
@@ -150,7 +148,7 @@ class Harness:
                 result = sandbox.execute(call)
             except ToolDenied as e:
                 m.denials += 1
-                self.store.finish_step(run_id, idx, error=f"denied: {e}")
+                self.store.finish_step(run_id, idx, error=f"{DENIED}{e}")
                 return
             except RetryableToolError as e:
                 if attempt < agent.max_retries:
@@ -158,7 +156,7 @@ class Harness:
                     self.sleep(agent.backoff_s * (2 ** attempt))
                     continue
                 m.tool_errors += 1
-                self.store.finish_step(run_id, idx, error=f"gave up after {attempt + 1} attempts: {e}")
+                self.store.finish_step(run_id, idx, error=f"{GAVE_UP}{attempt + 1} attempts: {e}")
                 return
             except Exception as e:  # tool bug: report to the model instead of killing the run
                 m.tool_errors += 1

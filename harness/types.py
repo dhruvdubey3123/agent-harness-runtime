@@ -20,6 +20,11 @@ Action = ToolCall | Finish
 RunStatus = Literal["running", "done", "failed", "needs_review"]
 StepStatus = Literal["started", "dispatched", "done", "error"]
 
+# How a failed step says what it did to the world. Both of these mean "nothing happened", which
+# is what lets a resumed run tell them apart from a step whose effect is unknown.
+DENIED = "denied: "
+GAVE_UP = "gave up after "
+
 
 class SimulatedCrash(BaseException):
     """Raised in tests and benchmarks to kill a run mid-step, like a process dying.

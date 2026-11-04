@@ -16,12 +16,25 @@ from triage.dag import PipelineDAG
 from triage.knowledge import CaseLibrary
 from triage.service import TriageService
 
-from harness import AgentSpec, Harness, Policy, RecoveryPolicy, RunStore, ScriptedModel, ToolCall
+from harness import (AgentSpec, Envelope, Harness, OpenAICompatModel, Policy, RecoveryPolicy, RunStore, ScriptedModel,
+                     ToolCall)
 
 from .warehouse import Warehouse
 
 DATA = Path(__file__).resolve().parent / "data"
 TOOLS = {"patch_procedure", "rerun_job", "refresh_table", "comment_ticket", "append_audit"}
+
+# What has to match the approval exactly: which node, which case. The text of a resolution comment
+# and of an audit line is left to whoever is applying the fix, which is the part a model is for.
+KEY_FIELDS = {"patch_procedure": ("node",), "rerun_job": ("node",), "refresh_table": ("node",),
+              "comment_ticket": ("case_id",), "append_audit": ()}
+
+REPLAY = "Apply the approved plan exactly."
+FIXER = ("You are the fixer for a data pipeline. A person has already read the diagnosis and approved a plan; "
+         "your job is to carry it out against the warehouse, one tool call at a time. The order is yours, and "
+         "any wording is yours. The approved actions are the limit: the runtime refuses anything else and writes "
+         "the refusal to the run log, so there is nothing to gain by trying a variation of a refused call. Apply "
+         "each approved action once, then finish with one sentence saying what you did.")
 
 
 class NeedsReview(Exception):
@@ -51,9 +64,27 @@ def plan_to_calls(dag: PipelineDAG, case_id: str, category: str, plan: list[str]
     return calls
 
 
+def describe_task(case_id: str, view: dict, envelope: Envelope) -> str:
+    """What the fixer is told. The approved actions are in the prompt and in the sandbox, so a model
+    that ignores the prompt changes nothing about what it is able to do."""
+    lines = [f"Incident {case_id} on the data pipeline.",
+             f"Category: {view.get('category')}",
+             f"Diagnosis a person approved: {view.get('proposal') or '(none recorded)'}",
+             "", "Approved actions:"]
+    lines += [f"  {i + 1}. {a}" for i, a in enumerate(envelope.actions)]
+    lines += ["", "Arguments shown above are fixed. Any other argument (a comment body, an audit line) is yours "
+                  "to write, and should name the case and what was fixed."]
+    return "\n".join(lines)
+
+
 class HarnessExecutor:
-    """Triage's Executor protocol, implemented by the harness. Only the approved plan can run:
-    the 'model' here is the plan itself, so the fixer cannot improvise steps nobody reviewed."""
+    """Triage's Executor protocol, implemented by the harness.
+
+    Whoever applies the fix, the approval is enforced by the sandbox rather than by trust. With the
+    scripted fixer the plan is replayed call for call. With a real model the plan becomes an
+    envelope: the model decides how to work and the runtime refuses anything a person did not
+    approve. Both paths leave the same run log.
+    """
 
     def __init__(self, runner: "TriageInHarness"):
         self.r = runner
@@ -63,13 +94,18 @@ class HarnessExecutor:
         r, cid = self.r, self.case_id
         view = r.service.view(cid)
         calls = plan_to_calls(r.dag, cid, view["category"], plan, view.get("proposal") or "")
-        agent = AgentSpec("fixer", "Apply the approved plan exactly.", Policy(set(TOOLS)),
-                          max_steps=len(calls) + 1, max_retries=r.max_retries)
-        h = Harness(r.warehouse.tools(), ScriptedModel(calls), r.store, fault_hook=r.fault_hook,
+        envelope = Envelope.from_calls(calls, KEY_FIELDS)
+        replaying = r.fixer == "scripted"
+        model = ScriptedModel(calls) if replaying else r.fixer_model()
+        agent = AgentSpec("fixer", REPLAY if replaying else FIXER,
+                          Policy(set(TOOLS), envelope=envelope),
+                          max_steps=len(calls) + (1 if replaying else 5), max_retries=r.max_retries)
+        h = Harness(r.warehouse.tools(), model, r.store, fault_hook=r.fault_hook,
                     recovery=r.recovery, verifier=r.warehouse.took_effect)
         rid = f"apply-{cid}"
         if r.store.get_run(rid) is None:
-            h.start(agent, f"apply approved fix for {cid}", task_kind="triage_apply", run_id=rid)
+            task = f"apply approved fix for {cid}" if replaying else describe_task(cid, view, envelope)
+            h.start(agent, task, task_kind="triage_apply", run_id=rid)
         else:
             h.resume(agent, rid)
         run = r.store.get_run(rid)
@@ -80,7 +116,9 @@ class HarnessExecutor:
 
 class TriageInHarness:
     def __init__(self, workdir: str | Path, fault_hook=None, min_confidence: float = 0.5,
-                 recovery: RecoveryPolicy | None = None, max_retries: int = 2):
+                 recovery: RecoveryPolicy | None = None, max_retries: int = 2, fixer="scripted"):
+        """fixer: "scripted" replays the approved plan, "model" hands it to a local open-weight
+        model through an OpenAI-compatible server, and any object with next_action is used as is."""
         self.dir = Path(workdir)
         self.dir.mkdir(parents=True, exist_ok=True)
         self.dag = PipelineDAG.from_yaml(DATA / "pipeline.yaml")
@@ -89,10 +127,14 @@ class TriageInHarness:
         self.fault_hook = fault_hook
         self.recovery = recovery or RecoveryPolicy()
         self.max_retries = max_retries
+        self.fixer = fixer
         self.executor = HarnessExecutor(self)
         saver = SqliteSaver(sqlite3.connect(str(self.dir / "triage_graph.db"), check_same_thread=False))
         self.service = TriageService(self.dag, CaseLibrary.load(DATA / "case_library.yaml"), executor=self.executor,
                                      checkpointer=saver, min_confidence=min_confidence)
+
+    def fixer_model(self):
+        return OpenAICompatModel() if self.fixer == "model" else self.fixer
 
     def _cfg(self, cid: str) -> dict:
         return {"configurable": {"thread_id": cid}}
