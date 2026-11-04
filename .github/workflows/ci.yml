@@ -25,6 +25,8 @@ jobs:
         with: {python-version: "3.12"}
       - run: pip install -e ".[dev,triage]"
       - run: pytest -q tests/test_triage_bridge.py tests/test_envelope.py
+      - name: Two agents and a person, with a kill in each half (stub model server, no network)
+        run: pytest -q tests/test_orchestrate.py
       - name: A fixer that improvises cannot leave the approved plan (live_fix.py against a stub model server)
         run: pytest -q tests/test_live_fix.py
       - name: Triage-in-harness benchmark (resume must apply every approved fix exactly once)

@@ -7,6 +7,8 @@ decides nothing. This script hands the same plan to a local model and keeps the 
   2. crash and resume   killed right after the job rerun; a second process finishes it exactly once
   3. untrusted input    a note that arrived with the incident asks for two extra actions, and the
                         sandbox refuses them because no person approved them
+  4. both agents        the model also does the diagnosis, with read-only tools, and the fix it
+                        then applies is the one a person approved, through a crash
 
 Run it against Ollama:
 
@@ -173,6 +175,56 @@ def untrusted(workdir: Path) -> None:
     record("untrusted_note", "3. a note in the incident asking for unapproved actions", info)
 
 
+# ------------------------------------------------------------------ 4. the model diagnoses too
+
+def two_agents(workdir: Path) -> None:
+    """Diagnosis by the model, with read-only tools, then the same crash as check 2 during the fix.
+    The label says what the right answer was, so a wrong diagnosis shows up as a wrong diagnosis
+    rather than as a failure."""
+    from .orchestrate import TwoAgentTriage
+
+    fired = {"x": False}
+
+    def hook(event, idx, call):
+        if event == "after_tool" and call.tool == "rerun_job" and not fired["x"]:
+            fired["x"] = True
+            raise SimulatedCrash()
+
+    t = TwoAgentTriage(workdir, model, fault_hook=hook)
+    t.diagnose(INCIDENT)
+    d, label = t.diagnosis(CASE), INCIDENT["label"]
+    diagnosed = {"diagnosis": d and vars(d), "review issues": t.review(CASE),
+                 "label says fix": label["fix_targets"], "label says category": label["category"],
+                 "root cause correct": bool(d) and d.fix_target in label["fix_targets"],
+                 "category correct": bool(d) and d.category == label["category"]}
+    if t.review(CASE):
+        diagnosed["pass"] = False                       # nothing to approve, so the rest cannot run
+        record("two_agents", "4. the model diagnoses, a person approves, the model applies", diagnosed)
+        return
+
+    try:
+        t.decide(CASE, True)
+        crashed = False
+    except SimulatedCrash:
+        crashed = True
+
+    t2 = TwoAgentTriage(workdir, model)                 # a new process, holding none of the above
+    try:
+        t2.recover(CASE)
+        paused = None
+    except NeedsReview as e:
+        paused = f'step {e.step["idx"]} {e.step["tool"]}'
+    if paused:
+        t2.resolve(CASE, t2.warehouse.took_effect("rerun_job", {"node": d.fix_target}))
+    counts = t2.warehouse.counts()
+    info = {**diagnosed, "crashed during the fix": crashed, "resume paused on": paused,
+            "trace": t2.trace(CASE), "job_runs": counts["job_runs"], "comments": counts["comments"],
+            "duplicated actions": t2.warehouse.duplicated_actions()}
+    info["pass"] = (t2.view(CASE)["outcome"] == "resolved" and t2.warehouse.duplicated_actions() == 0
+                    and all(n == 1 for n in counts["job_runs"].values()))
+    record("two_agents", "4. the model diagnoses, a person approves, the model applies", info)
+
+
 if __name__ == "__main__":
     preflight()
     t0 = time.time()
@@ -180,8 +232,10 @@ if __name__ == "__main__":
     clean(root / "clean")
     crash_and_resume(root / "crash")
     untrusted(root / "untrusted")
+    two_agents(root / "two_agents")
     report["seconds"] = round(time.time() - t0, 1)
     report["passed"] = sum(c["pass"] for c in report["checks"].values())
     out = Path(__file__).with_name("live_fix_report.json")
     out.write_text(json.dumps(report, indent=2, default=str))
-    print(f"\n{report['passed']}/3 checks passed with {model.model} in {report['seconds']} s. Report: {out}")
+    print(f"\n{report['passed']}/{len(report['checks'])} checks passed with {model.model} "
+          f"in {report['seconds']} s. Report: {out}")

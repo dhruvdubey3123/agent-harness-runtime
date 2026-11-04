@@ -172,6 +172,66 @@ python -m triage_bridge.live_fix
 This bounds what a model can do, not whether it is right. Its diagnosis can still be wrong, which is why the plan sits behind a
 human gate and the envelope sits behind that.
 
+## Two agents, one person, one log
+
+With the fixer in place, the other half of the job is still deterministic: the graph finds the root cause by walking the pipeline
+structure. `triage_bridge/orchestrate.py` runs the whole incident as two model-driven agents instead, orchestrated by the harness
+rather than by a framework:
+
+```
+diagnose (model, read-only tools)  ->  review  ->  a person approves  ->  apply (model, inside the approved envelope)
+```
+
+The two agents are deliberately unequal.
+
+* **The diagnoser has judgment and no power.** Its sandbox holds five read-only tools: the pipeline and its edges, the reported
+  status of a node, everything upstream of a node, similar resolved cases, and `submit_diagnosis`. There is no tool that changes
+  anything, so a wrong answer stays a wrong answer instead of becoming a wrong action.
+* **What it submits is checked before a person sees it.** An unknown category, a node that is not in the pipeline, or a table
+  nobody may patch directly come back as an error the model can read and correct. The plan itself is not up for negotiation:
+  once the target is known, what else to re-run is pipeline structure, so it is derived rather than proposed.
+* **The fixer has power and no judgment.** It writes to the warehouse, and only the approved actions, as above.
+* **The diagnosis is read back out of the run log, not held in memory.** Kill the process during the diagnosis and the next one
+  picks it up; kill it during the fix and the next one finishes without repeating an action. Both agents are runs in one SQLite
+  log, so `trace()` prints the whole incident as one sequence.
+
+```
+[diagnose] done
+  0 pipeline({}) -> done
+  1 rerun_job({"node": "sp_fill_rate"}) -> error [denied: tool 'rerun_job' is not allowed for this agent]
+  2 upstream({"node": "rpt_workforce"}) -> done
+  3 precedents({"query": "invalid identifier after an upstream column rename"}) -> done
+  4 submit_diagnosis({"category": "schema-drift", ...}) -> error [ValueError: 'schema-drift' is not a category...]
+  5 submit_diagnosis({"category": "schema_drift", "cause": "load_cases", "fix_target": "sp_fill_rate"}) -> done
+[apply] done
+  0 patch_procedure({"node": "sp_fill_rate", "change": "schema_drift"}) -> done
+  1 rerun_job({"node": "load_cases"}) -> error [denied: ... is not in the approved plan]
+  2 rerun_job({"node": "sp_fill_rate"}) -> done
+  ...
+```
+
+### Is the model any good at it?
+
+The 100 incidents carry labels, so this is measurable rather than a matter of opinion. The deterministic tracer sets the bar:
+
+| On all 100 labelled incidents | Rule-based tracer |
+|---|---|
+| Root cause identified correctly | 100 / 100 |
+| Category identified correctly | 93 / 100 |
+| Wall clock | 0.8 s |
+
+`python -m triage_bridge.diag_bench --limit 20` scores a model against the same labels and prints both columns side by side,
+including which cases it missed. Nothing is applied during that benchmark, so a wrong answer costs a wrong row and nothing else.
+Fill in the model column from your own run; a small local model is not expected to beat a tracer written for this pipeline, and
+the useful question is how close it gets and where it fails.
+
+```bash
+python -m triage_bridge.diag_bench --limit 20   # the model diagnoses, scored against the labels
+python -m triage_bridge.live_fix                # 4 checks: apply, crash, untrusted input, both agents
+```
+
+CI runs the same two-agent path against the stub server, including a kill during the diagnosis and a kill during the fix.
+
 ## Tuning itself against its own benchmark
 
 Those 30 pauses were tuned by hand. `evolve/` makes that a loop instead: it proposes a change to the
@@ -263,7 +323,7 @@ a short search that fails if the winner ever duplicates or drops an action.
 
 ```bash
 pip install -e ".[dev]"
-pytest -q                          # 32 tests, 59 with the [triage] extra
+pytest -q                          # 32 tests, 68 with the [triage] extra
 python examples/quickstart.py      # run, crash at step 2, resume from the log
 ```
 
@@ -343,8 +403,9 @@ Service and the distillation CronJob.
 ## Status
 
 Built and tested, including one end-to-end run with a real open-weight model (Qwen3 8B, above). Not yet
-battle-tested at scale. The triage agent runs inside it, a model can apply an approved fix without being
-able to leave the approval, and the harness tunes its own recovery policy against its benchmark behind a
-gate that rejected 4 of 10 candidates (all above). A Postgres store and distributed tracing are next.
+battle-tested at scale. The triage agent runs inside it, a model can diagnose an incident with read-only
+tools and then apply the approved fix without being able to leave the approval, and the harness tunes its
+own recovery policy against its benchmark behind a gate that rejected 4 of 10 candidates (all above).
+A Postgres store and distributed tracing are next.
 
 MIT licensed.

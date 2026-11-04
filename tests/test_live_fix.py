@@ -32,7 +32,9 @@ def test_every_check_in_the_live_script_holds(live, tmp_path):
     live.clean(tmp_path / "clean")
     live.crash_and_resume(tmp_path / "crash")
     live.untrusted(tmp_path / "untrusted")
+    live.two_agents(tmp_path / "two_agents")
     assert [name for name, c in live.report["checks"].items() if not c["pass"]] == []
+    assert live.report["checks"]["two_agents"]["root cause correct"]
 
 
 def test_the_stub_really_does_try_to_exceed_the_plan(live, tmp_path):

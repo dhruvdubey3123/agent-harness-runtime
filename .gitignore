@@ -5,3 +5,5 @@ __pycache__/
 .venv/
 build/
 dist/
+triage_bridge/diag_bench_runs/
+triage_bridge/live_fix_report.json
