@@ -125,6 +125,7 @@ class Harness:
             if action == "verified_done":
                 m.auto_verified += 1
                 self.store.resolve_review(run_id, last["idx"], True, "verified from the environment, not by a person")
+                sandbox.account({**last, "status": "done", "error": None})   # settled, so the plan is spent
             else:
                 self._execute(agent, sandbox, run_id, last["idx"], ToolCall(last["tool"], last["args"]), m)
             steps = self.store.steps(run_id)

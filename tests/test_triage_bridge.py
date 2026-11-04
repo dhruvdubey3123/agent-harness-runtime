@@ -168,3 +168,19 @@ def test_the_approval_survives_a_crash_in_the_middle_of_a_model_run(tmp_path):
     assert v["outcome"] == "resolved"
     assert t2.warehouse.counts()["job_runs"] == {"sp_fill_rate": 1}
     assert t2.warehouse.duplicated_actions() == 0
+
+
+def test_a_step_the_harness_verifies_itself_is_spent_in_the_approved_plan(tmp_path):
+    """Regression. A crash after the job ran, recovered by asking the warehouse rather than a person,
+    finishes the step without it passing through the sandbox. If the plan is not told, the
+    'every approved action happened' check sees an action outstanding and bounces the finish."""
+    from harness import RecoveryPolicy
+    rec = RecoveryPolicy(per_tool={"rerun_job": "unique_payload"})
+    t = TriageInHarness(tmp_path, fault_hook=crash("rerun_job", "after_tool"), recovery=rec)
+    t.diagnose(INC)
+    with pytest.raises(SimulatedCrash):
+        t.decide("SYN-007", True)
+    v = TriageInHarness(tmp_path, recovery=rec).recover("SYN-007")     # no NeedsReview, no Incomplete
+    assert v["outcome"] == "resolved"
+    run = TriageInHarness(tmp_path).apply_status("SYN-007")
+    assert run["status"] == "done" and not any(s["tool"] == "finish" for s in run["steps"])

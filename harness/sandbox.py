@@ -59,16 +59,23 @@ class Sandbox:
         conservative reading is that it happened.
         """
         for s in steps:
-            if s["status"] not in ("done", "error"):
-                continue
-            self.calls[s["tool"]] = self.calls.get(s["tool"], 0) + 1
-            err = str(s.get("error") or "")
-            if self.policy.envelope is None or err.startswith(DENIED) or err.startswith(GAVE_UP):
-                continue
-            try:
-                self._charge(self.policy.envelope.check(ToolCall(s["tool"], s["args"]), self.used))
-            except ToolDenied:
-                pass   # the log already holds more of this action than the plan approved
+            if s["status"] in ("done", "error"):
+                self.account(s)
+
+    def account(self, step: dict) -> None:
+        """Count one finished step against the call budget and the approved plan.
+
+        Used when a log is replayed, and also when the harness itself settles an interrupted step
+        by checking the environment: that step is finished too, and the plan has to know.
+        """
+        self.calls[step["tool"]] = self.calls.get(step["tool"], 0) + 1
+        err = str(step.get("error") or "")
+        if self.policy.envelope is None or err.startswith(DENIED) or err.startswith(GAVE_UP):
+            return
+        try:
+            self._charge(self.policy.envelope.check(ToolCall(step["tool"], step["args"]), self.used))
+        except ToolDenied:
+            pass   # the log already holds more of this action than the plan approved
 
     def _charge(self, index: int) -> None:
         self.used[index] = self.used.get(index, 0) + 1
