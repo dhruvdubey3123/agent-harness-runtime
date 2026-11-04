@@ -1,8 +1,8 @@
 """HTTP control plane.  uvicorn harness.api:app
 
-Runs need a real model, so POST /runs uses Claude when ANTHROPIC_API_KEY is set and
-returns 503 otherwise. Everything else (inspecting runs, resuming, distilling skills) works
-without a key. Tests inject a ScriptedModel through `create_app`.
+Runs need a real model, so POST /runs uses Claude when ANTHROPIC_API_KEY is set, an
+OpenAI-compatible server such as Ollama when HARNESS_BASE_URL is set, and returns 503
+otherwise. Everything else (inspecting runs, resuming, distilling skills) works without a key. Tests inject a ScriptedModel through `create_app`.
 """
 from __future__ import annotations
 
@@ -44,6 +44,9 @@ def create_app(model: Model | None = None, store: RunStore | None = None, worksp
     if model is None and os.getenv("ANTHROPIC_API_KEY"):
         from .model import AnthropicModel
         model = AnthropicModel()
+    elif model is None and os.getenv("HARNESS_BASE_URL"):
+        from .model import OpenAICompatModel   # Ollama, llama.cpp, vLLM: open-weight models, no key needed
+        model = OpenAICompatModel()
     harness = Harness(workspace_tools(workspace), model, store, skills_dir=str(skills_dir)) if model else None
     app = FastAPI(title="agent-harness-runtime", version="0.1.0")
 
@@ -66,7 +69,7 @@ def create_app(model: Model | None = None, store: RunStore | None = None, worksp
     @app.post("/runs")
     def start(req: RunRequest) -> dict:
         if harness is None:
-            raise HTTPException(503, "no model configured; set ANTHROPIC_API_KEY")
+            raise HTTPException(503, "no model configured; set ANTHROPIC_API_KEY or HARNESS_BASE_URL")
         rid = harness.start(_agent(req.agent), req.task, req.task_kind)
         return _view(rid)
 

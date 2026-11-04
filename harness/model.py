@@ -1,7 +1,9 @@
 """Models the harness can drive. The harness only needs one method: given the context, what next?"""
 from __future__ import annotations
 
+import json
 import os
+import re
 from typing import Protocol
 
 from .types import Action, Finish, ToolCall
@@ -60,4 +62,67 @@ class AnthropicModel:
             if block.type == "tool_use":
                 return ToolCall(block.name, dict(block.input))
         text = "".join(getattr(b, "text", "") for b in resp.content).strip()
+        return Finish(text or "(no answer)")
+
+
+class OpenAICompatModel:
+    """Any server that speaks the OpenAI chat-completions API with tool calling: Ollama, llama.cpp's
+    llama-server, vLLM, LM Studio. Defaults to a local Ollama, so open-weight models run with no API key.
+
+        ollama pull qwen3:8b
+        HARNESS_MODEL=qwen3:8b python examples/real_model.py
+    """
+
+    def __init__(self, model: str | None = None, base_url: str | None = None, api_key: str | None = None,
+                 timeout: float = 300.0, temperature: float = 0.0):
+        self.model = model or os.environ.get("HARNESS_MODEL", "qwen3:8b")
+        self.base_url = (base_url or os.environ.get("HARNESS_BASE_URL", "http://localhost:11434/v1")).rstrip("/")
+        self.api_key = api_key or os.environ.get("HARNESS_API_KEY", "not-needed-for-local")
+        self.timeout = timeout
+        self.temperature = temperature
+
+    @staticmethod
+    def _tools(tools: list[dict]) -> list[dict]:
+        return [{"type": "function", "function": {"name": t["name"], "description": t.get("description", ""),
+                                                  "parameters": t.get("input_schema", {"type": "object"})}}
+                for t in tools]
+
+    @staticmethod
+    def _messages(context: list[dict]) -> list[dict]:
+        out: list[dict] = []
+        i = 0
+        for m in context:
+            if m["role"] in ("system", "user"):
+                out.append({"role": m["role"], "content": str(m["content"])})
+            elif m["role"] == "assistant":
+                i += 1
+                out.append({"role": "assistant", "content": "", "tool_calls": [{
+                    "id": f"call_{i}", "type": "function",
+                    "function": {"name": m["tool"], "arguments": json.dumps(m["args"])}}]})
+            elif m["role"] == "tool":
+                content = str(m["content"])
+                out.append({"role": "tool", "tool_call_id": f"call_{i}",
+                            "content": ("ERROR: " + content) if m.get("error") else content})
+        return out
+
+    def next_action(self, context: list[dict], tools: list[dict]) -> Action:
+        import httpx
+
+        body = {"model": self.model, "messages": self._messages(context), "tools": self._tools(tools),
+                "temperature": self.temperature, "stream": False}
+        r = httpx.post(f"{self.base_url}/chat/completions", json=body, timeout=self.timeout,
+                       headers={"Authorization": f"Bearer {self.api_key}"})
+        r.raise_for_status()
+        msg = r.json()["choices"][0]["message"]
+        for call in msg.get("tool_calls") or []:
+            fn = call["function"]
+            args = fn.get("arguments") or {}
+            if isinstance(args, str):
+                try:
+                    args = json.loads(args) if args.strip() else {}
+                except json.JSONDecodeError:
+                    args = {"_unparsed": args}   # the sandbox's validation turns this into an error the model sees
+            return ToolCall(fn["name"], args)
+        # reasoning models (Qwen3, DeepSeek-R1) may wrap their thinking in <think> tags; keep only the answer
+        text = re.sub(r"<think>.*?</think>", "", msg.get("content") or "", flags=re.S).strip()
         return Finish(text or "(no answer)")

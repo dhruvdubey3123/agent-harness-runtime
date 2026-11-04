@@ -94,7 +94,7 @@ Reproduce: `python -m bench.crash_bench --trials 200 --seed 1`
 
 ```bash
 pip install -e ".[dev]"
-pytest -q                          # 18 tests
+pytest -q                          # 21 tests
 python examples/quickstart.py      # run, crash at step 2, resume from the log
 ```
 
@@ -108,7 +108,16 @@ status: done | replayed from log: 2
 audit.log: ['notes created', 'notes checked']
 ```
 
-With a real model:
+With a free open-weight model, no API key (any OpenAI-compatible server works: Ollama, llama.cpp, vLLM, LM Studio):
+
+```bash
+ollama pull qwen3:8b
+pip install -e ".[local]"
+python examples/real_model.py      # clean run, two crash-and-resume runs, and a sandbox check, against the real model
+HARNESS_BASE_URL=http://localhost:11434/v1 uvicorn harness.api:app
+```
+
+With Claude:
 
 ```bash
 pip install -e ".[llm]"
