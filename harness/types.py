@@ -17,7 +17,7 @@ class Finish:
 
 Action = ToolCall | Finish
 
-RunStatus = Literal["running", "done", "failed", "needs_review"]
+RunStatus = Literal["running", "done", "failed", "needs_review", "model_unavailable"]
 StepStatus = Literal["started", "dispatched", "done", "error"]
 
 # How a failed step says what it did to the world. Both of these mean "nothing happened", which

@@ -35,6 +35,10 @@ class Sandbox:
         self.used: dict[int, int] = {}   # approved action index -> times already charged
         self._pool = cf.ThreadPoolExecutor(max_workers=4)
 
+    def bind(self, call: ToolCall) -> ToolCall:
+        """The call with approved values filled in where it left them out. Unchanged without an envelope."""
+        return self.policy.envelope.bind(call, self.used) if self.policy.envelope is not None else call
+
     def unspent(self) -> list[str]:
         """Approved actions that have not happened yet. Empty when there is no envelope."""
         return self.policy.envelope.remaining(self.used) if self.policy.envelope is not None else []

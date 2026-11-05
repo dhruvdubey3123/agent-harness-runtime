@@ -143,7 +143,14 @@ class Harness:
             ctx, compacted = build_context(agent.instructions, run["task"], steps, self.budget, skills)
             m.compactions += compacted
             m.est_context_tokens.append(est_tokens(ctx))
-            action = self.model.next_action(ctx, sandbox.visible_tools())
+            try:
+                action = self.model.next_action(ctx, sandbox.visible_tools())
+            except Exception as e:
+                # The model timed out or is unreachable. Nothing was decided and nothing is guessed: the run
+                # stops with everything so far in the log and resumes from there when the model is back,
+                # or a person picks it up. A crash of the process (BaseException) still propagates.
+                self.store.set_status(run_id, "model_unavailable", f"model unavailable ({type(e).__name__}): {e}"[:400])
+                break
             if isinstance(action, Finish):
                 left = sandbox.unspent()
                 if left and sum(1 for s in steps if s["tool"] == FINISH_STEP) < MAX_FINISH_REJECTIONS:
@@ -175,6 +182,7 @@ class Harness:
         m.wall_ms += (time.perf_counter() - t0) * 1000
 
     def _execute(self, agent: AgentSpec, sandbox: Sandbox, run_id: str, idx: int, call: ToolCall, m: RunMetrics) -> None:
+        call = sandbox.bind(call)   # the log records the approved values, so resume and verification see them
         tool = self.registry.get(call.tool)
         self.store.begin_step(run_id, idx, call.tool, call.args, tool.idempotent if tool else True)
         self._hook("before_tool", idx, call)

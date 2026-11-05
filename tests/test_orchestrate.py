@@ -193,3 +193,53 @@ def test_the_person_at_the_gate_gets_the_checked_briefing(model, tmp_path):
         v = t.diagnose(INC)
         assert v["waiting_for_human"] and "sp_fill_rate" in v["briefing"]
         assert t.rules(CASE)["briefing_source"] == "model"
+
+
+# ------------------------------------------------------------------ every rules-reviewer check applies
+
+def rules_target(case_id):
+    import copy
+
+    from triage.dag import PipelineDAG
+    from triage.knowledge import CaseLibrary
+    from triage.service import TriageService
+    rows = [json.loads(line) for line in (DATA / "incidents.jsonl").read_text().splitlines()]
+    inc = next(r for r in rows if r["id"] == case_id)
+    lib = CaseLibrary.load(DATA / "case_library.yaml")
+    view = TriageService(PipelineDAG.from_yaml(DATA / "pipeline.yaml"), CaseLibrary(copy.deepcopy(lib.cases))).open(
+        {k: v for k, v in inc.items() if k != "label"})[1]
+    return inc, view
+
+
+def test_an_ambiguous_trace_goes_to_a_person_even_when_the_model_agrees_with_the_tracer(tmp_path):
+    """The tracer's best guess on an ambiguous incident is still a guess. The deterministic graph would
+    not put it up for approval, so the model's matching diagnosis does not go up either."""
+    inc, view = rules_target("SYN-046")
+    assert "trace ambiguous between multiple candidates" in view["review_issues"]
+    t = TwoAgentTriage(tmp_path, model=scripted(("submit_diagnosis", {"category": view["category"],
+                                                                       "fix_target": view["fix_target"],
+                                                                       "reason": "it looks like this one"})))
+    v = t.diagnose(inc)
+    assert v["diagnosis"]["fix_target"] == view["fix_target"]
+    assert "trace ambiguous between multiple candidates" in v["review_issues"] and not v["waiting_for_human"]
+
+
+def test_the_patch_a_person_sees_is_the_patch_that_runs(model, tmp_path):
+    t = TwoAgentTriage(tmp_path, model=model)
+    v = t.diagnose(INC)
+    shown = v["patch_to_approve"]
+    assert shown and "sp_fill_rate" in shown
+    t.decide(CASE, True)
+    assert t.warehouse.texts()["patches"] == {"sp_fill_rate": shown}
+
+
+def test_a_diagnoser_whose_model_is_unavailable_hands_the_case_to_a_person(tmp_path):
+    class Down:
+        def next_action(self, context, tools):
+            raise TimeoutError("timed out")
+
+    t = TwoAgentTriage(tmp_path, model=Down())
+    v = t.diagnose(INC)
+    assert not v["waiting_for_human"] and "model was unavailable" in v["review_issues"][0]
+    with pytest.raises(Escalated):
+        t.decide(CASE, True)

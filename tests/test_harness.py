@@ -234,3 +234,48 @@ def test_mcp_bridge_exposes_only_allowed_tools(tmp_path):
 
     s = build_server(workspace_tools(tmp_path), Policy({"read_file", "list_files"}))
     assert {t.name for t in asyncio.run(s.list_tools())} == {"read_file", "list_files"}
+
+
+# ---------------------------------------------------------------- the model stops answering
+
+class GoesQuiet(ScriptedModel):
+    """Answers for a while, then times out, as a laptop model under load did in a real run."""
+
+    def __init__(self, script, quiet_after):
+        super().__init__(script)
+        self.quiet_after = quiet_after
+
+    def next_action(self, context, tools):
+        if sum(1 for m in context if m["role"] == "tool") >= self.quiet_after:
+            raise TimeoutError("timed out")
+        return super().next_action(context, tools)
+
+
+QUIET = [ToolCall("write_file", {"path": "a.md", "content": "a"}), ToolCall("append_line", {"path": "log", "line": "x"}),
+          ToolCall("write_file", {"path": "b.md", "content": "b"})]
+
+
+def test_a_model_that_stops_answering_pauses_the_run_instead_of_crashing_it(tmp_path):
+    store = RunStore()
+    rid = Harness(workspace_tools(tmp_path), GoesQuiet(QUIET, quiet_after=2), store).start(agent(), "t")
+    run = store.get_run(rid)
+    assert run["status"] == "model_unavailable" and "TimeoutError" in run["answer"]
+    assert [s["status"] for s in store.steps(rid)] == ["done", "done"]          # nothing guessed, nothing lost
+
+
+def test_the_paused_run_resumes_when_the_model_is_back_and_repeats_nothing(tmp_path):
+    store = RunStore()
+    rid = Harness(workspace_tools(tmp_path), GoesQuiet(QUIET, quiet_after=2), store).start(agent(), "t")
+    Harness(workspace_tools(tmp_path), ScriptedModel(QUIET), store).resume(agent(), rid)
+    assert store.get_run(rid)["status"] == "done"
+    assert (tmp_path / "log").read_text().splitlines() == ["x"]                 # the append ran once
+    assert (tmp_path / "b.md").exists()
+
+
+def test_a_real_crash_still_propagates(tmp_path):
+    class Dies(ScriptedModel):
+        def next_action(self, context, tools):
+            raise SimulatedCrash("process killed")
+
+    with pytest.raises(SimulatedCrash):
+        Harness(workspace_tools(tmp_path), Dies([])).start(agent(), "t")

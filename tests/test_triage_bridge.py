@@ -109,7 +109,7 @@ def test_bench_resume_never_duplicates():
 # What a model plausibly decides on its own: rerun the upstream load that caused the drift, and
 # rerun the procedure once more to be sure. Both are refused; the wording is its own.
 ROGUE = [
-    ToolCall("patch_procedure", {"node": "sp_fill_rate", "change": "schema_drift"}),
+    ToolCall("patch_procedure", {"node": "sp_fill_rate"}),               # names the target; Keel supplies the approved patch
     ToolCall("rerun_job", {"node": "load_cases"}),
     ToolCall("rerun_job", {"node": "sp_fill_rate"}),
     ToolCall("rerun_job", {"node": "sp_fill_rate"}),
@@ -184,3 +184,82 @@ def test_a_step_the_harness_verifies_itself_is_spent_in_the_approved_plan(tmp_pa
     assert v["outcome"] == "resolved"
     run = TriageInHarness(tmp_path).apply_status("SYN-007")
     assert run["status"] == "done" and not any(s["tool"] == "finish" for s in run["steps"])
+
+
+# ---------------------------------------------------- the patch that runs is the patch that was approved
+
+GOOD_REST = [
+    ToolCall("rerun_job", {"node": "sp_fill_rate"}),
+    ToolCall("refresh_table", {"node": "fct_workforce"}),
+    ToolCall("refresh_table", {"node": "rpt_workforce"}),
+    ToolCall("comment_ticket", {"case_id": "SYN-007", "body": "Fixed."}),
+    ToolCall("append_audit", {"line": "SYN-007: fixed"}),
+    Finish("done"),
+]
+
+
+def approved_patch(t):
+    return t.service.view("SYN-007")["proposal"]
+
+
+def test_the_fixer_names_the_procedure_and_keel_applies_the_approved_patch(tmp_path):
+    t = TriageInHarness(tmp_path, fixer=ScriptedModel([ToolCall("patch_procedure", {"node": "sp_fill_rate"}), *GOOD_REST]))
+    t.diagnose(INC)
+    approved = approved_patch(t)
+    t.decide("SYN-007", True)
+    assert t.warehouse.texts()["patches"] == {"sp_fill_rate": approved}
+    patched = next(s for s in t.apply_status("SYN-007")["steps"] if s["tool"] == "patch_procedure")
+    assert patched["args"]["change"] == approved          # the log records what actually ran
+
+
+def test_a_fixer_that_writes_its_own_patch_is_refused(tmp_path):
+    """In a real run, Qwen3 8B wrote the patch text itself after approval. Against a real warehouse that
+    text is the SQL, so a patch nobody approved is refused, and only the approved one runs."""
+    own = ToolCall("patch_procedure", {"node": "sp_fill_rate", "change": "ALTER TABLE ... DROP COLUMN REQ_ID"})
+    t = TriageInHarness(tmp_path, fixer=ScriptedModel([own, ToolCall("patch_procedure", {"node": "sp_fill_rate"}),
+                                                       *GOOD_REST]))
+    t.diagnose(INC)
+    approved = approved_patch(t)
+    v = t.decide("SYN-007", True)
+    assert v["outcome"] == "resolved"
+    assert t.warehouse.texts()["patches"] == {"sp_fill_rate": approved}
+    refusal = denials(t.apply_status("SYN-007"))[0]
+    assert "fixed by the approval" in refusal
+
+
+def test_after_a_crash_on_the_patch_the_resumed_run_still_applies_the_approved_one(tmp_path):
+    script = [ToolCall("patch_procedure", {"node": "sp_fill_rate"}), *GOOD_REST]
+    t = TriageInHarness(tmp_path, fault_hook=crash("patch_procedure", "after_tool"), fixer=ScriptedModel(script))
+    t.diagnose(INC)
+    approved = approved_patch(t)
+    with pytest.raises(SimulatedCrash):
+        t.decide("SYN-007", True)
+    v = TriageInHarness(tmp_path, fixer=ScriptedModel(script)).recover("SYN-007")   # idempotent: repeated safely
+    assert v["outcome"] == "resolved" and TriageInHarness(tmp_path).warehouse.texts()["patches"] == {"sp_fill_rate": approved}
+
+
+# ---------------------------------------------------- the model stops answering in the middle of a fix
+
+class QuietFixer(ScriptedModel):
+    def __init__(self, script, quiet_after):
+        super().__init__(script)
+        self.quiet_after = quiet_after
+
+    def next_action(self, context, tools):
+        if sum(1 for m in context if m["role"] == "tool") >= self.quiet_after:
+            raise TimeoutError("timed out")
+        return super().next_action(context, tools)
+
+
+def test_a_fixer_whose_model_stops_answering_pauses_and_resumes_exactly_once(tmp_path):
+    from triage_bridge import ModelUnavailable
+    script = [ToolCall("patch_procedure", {"node": "sp_fill_rate"}), *GOOD_REST]
+    t = TriageInHarness(tmp_path, fixer=QuietFixer(script, quiet_after=2))
+    t.diagnose(INC)
+    with pytest.raises(ModelUnavailable):
+        t.decide("SYN-007", True)
+    assert t.warehouse.counts()["job_runs"] == {"sp_fill_rate": 1}           # what ran stays ran
+    v = TriageInHarness(tmp_path, fixer=ScriptedModel(script)).recover("SYN-007")
+    assert v["outcome"] == "resolved"
+    w = TriageInHarness(tmp_path).warehouse
+    assert w.counts()["job_runs"] == {"sp_fill_rate": 1} and w.duplicated_actions() == 0

@@ -26,7 +26,7 @@ TOOLS = {"patch_procedure", "rerun_job", "refresh_table", "comment_ticket", "app
 
 # What has to match the approval exactly: which node, which case. The text of a resolution comment
 # and of an audit line is left to whoever is applying the fix, which is the part a model is for.
-KEY_FIELDS = {"patch_procedure": ("node",), "rerun_job": ("node",), "refresh_table": ("node",),
+KEY_FIELDS = {"patch_procedure": ("node", "change"), "rerun_job": ("node",), "refresh_table": ("node",),
               "comment_ticket": ("case_id",), "append_audit": ()}
 
 REPLAY = "Apply the approved plan exactly."
@@ -35,6 +35,24 @@ FIXER = ("You are the fixer for a data pipeline. A person has already read the d
          "any wording is yours. The approved actions are the limit: the runtime refuses anything else and writes "
          "the refusal to the run log, so there is nothing to gain by trying a variation of a refused call. Apply "
          "each approved action once, then finish with one sentence saying what you did.")
+
+
+# Of those, what is content rather than a target. The patch a person approved is the patch that runs:
+# the fixer names the procedure and the runtime supplies the approved change, so the model never writes
+# the one argument that, against a real warehouse, would be the SQL.
+BOUND_FIELDS = {"patch_procedure": ("change",)}
+
+
+def approved_envelope(calls: list[ToolCall]) -> Envelope:
+    return Envelope.from_calls(calls, KEY_FIELDS, BOUND_FIELDS)
+
+
+class ModelUnavailable(Exception):
+    """The model stopped answering mid-run. Nothing was guessed; the run resumes from its log."""
+
+    def __init__(self, run_id: str, reason: str):
+        self.run_id, self.reason = run_id, reason
+        super().__init__(f"{run_id}: {reason}")
 
 
 class Incomplete(Exception):
@@ -57,7 +75,7 @@ def plan_to_calls(dag: PipelineDAG, case_id: str, category: str, plan: list[str]
         kind = dag.nodes[node].kind
         if verb == "fix":
             if kind == "procedure":
-                calls.append(ToolCall("patch_procedure", {"node": node, "change": category}))
+                calls.append(ToolCall("patch_procedure", {"node": node, "change": proposal or category}))
             calls.append(ToolCall("rerun_job", {"node": node}))
         elif kind in ("load", "procedure"):
             calls.append(ToolCall("rerun_job", {"node": node}))
@@ -76,8 +94,9 @@ def describe_task(case_id: str, view: dict, envelope: Envelope) -> str:
              f"Diagnosis a person approved: {view.get('proposal') or '(none recorded)'}",
              "", "Approved actions:"]
     lines += [f"  {i + 1}. {a}" for i, a in enumerate(envelope.actions)]
-    lines += ["", "Arguments shown above are fixed. Any other argument (a comment body, an audit line) is yours "
-                  "to write, and should name the case and what was fixed."]
+    lines += ["", "Arguments shown above are fixed. The patch content is fixed by the approval: call patch_procedure "
+                  "with the node only and the runtime applies exactly what was approved. Any other argument (a "
+                  "comment body, an audit line) is yours to write, and should name the case and what was fixed."]
     return "\n".join(lines)
 
 
@@ -98,7 +117,7 @@ class HarnessExecutor:
         r, cid = self.r, self.case_id
         view = r.service.view(cid)
         calls = plan_to_calls(r.dag, cid, view["category"], plan, view.get("proposal") or "")
-        envelope = Envelope.from_calls(calls, KEY_FIELDS)
+        envelope = approved_envelope(calls)
         replaying = r.fixer == "scripted"
         model = ScriptedModel(calls) if replaying else r.fixer_model()
         agent = AgentSpec("fixer", REPLAY if replaying else FIXER,
@@ -117,6 +136,8 @@ class HarnessExecutor:
             raise NeedsReview(rid, r.store.steps(rid)[-1])
         if run["status"] == "failed":
             raise Incomplete(f"{rid}: {run['answer']}")
+        if run["status"] == "model_unavailable":
+            raise ModelUnavailable(rid, run["answer"])
         return [f'{s["tool"]}({s["args"].get("node") or s["args"].get("case_id") or ""}) -> {s["status"]}' for s in r.store.steps(rid)]
 
 

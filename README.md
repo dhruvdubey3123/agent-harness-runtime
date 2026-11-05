@@ -152,11 +152,18 @@ refresh_table(node='rpt_workforce'); comment_ticket(case_id='SYN-007'); append_a
 
 * **The target is fixed, the prose is not.** `comment_ticket(case_id='SYN-007')` approves one comment on that case; the body is
   the model's to write. A comment on a different case is a different action and is refused.
+* **The content of a patch is part of the approval.** The fixer names the procedure and Keel supplies the patch a person
+  approved; a fixer that writes its own patch text is refused. A real Qwen3 8B run wrote its own after approval, which the
+  SQLite stand-in ignored, but against a real warehouse that text is the SQL that runs, so it is never the model's to write.
+  The run log records the approved content, so a resumed run applies the same patch.
 * **Enforced in the sandbox, before dispatch.** A call outside the envelope never reaches the tool. It is written to the run log
   as a refusal with the reason, so an operator reading the log afterwards can tell an overreach from a failure.
 * **Spent budgets survive a crash.** What is left of the approval is rebuilt from the log, so a second process cannot re-spend
   an action the first one already used. A refusal and a give-up both mean nothing happened and cost nothing; an unexplained
   failure is charged, because the conservative reading of an unknown effect is that it happened.
+* **A model that stops answering pauses the run.** A timeout or an unreachable server ends the run as `model_unavailable`
+  with everything so far in the log. Nothing is guessed, and the run resumes from the log when the model is back, without
+  repeating an action. A diagnosis that never arrived sends the case to a person.
 
 `python -m triage_bridge.live_fix` runs three checks against a local Ollama: a clean apply, a kill right after the job rerun
 followed by a resume in a new process, and an untrusted note that arrived with the incident asking for two actions nobody
@@ -195,11 +202,11 @@ The two agents are deliberately unequal.
 * **What it submits is checked before a person sees it.** An unknown category, a node that is not in the pipeline, or a table
   nobody may patch directly come back as an error the model can read and correct. The plan itself is not up for negotiation:
   once the target is known, what else to re-run is pipeline structure, so it is derived rather than proposed.
-* **The tracer checks its work before a person does.** The deterministic triage graph runs on the same incident; if it
-  names a different root cause, or the rules cannot recognise the failure at all, the case goes to a person with both
-  answers instead of to the approval gate. The category is the rules': on incidents 41 to 60 a model choosing from a list
-  put a familiar name on 4 failures nobody had seen, which would otherwise have looked routine. Measured in
-  pipeline-triage-graph, the cross-check let 0 of 7 wrong diagnoses reach approval.
+* **The tracer checks its work before a person does.** The deterministic triage graph runs on the same incident. If it names
+  a different root cause, or its own reviewer would not put the incident up for approval (an unrecognised failure, an
+  ambiguous trace, low confidence, a protected table), the case goes to a person with both answers instead of to the
+  approval gate. The category is the rules': on incidents 41 to 60 a model choosing from a list put a familiar name on 4
+  failures nobody had seen. Measured in pipeline-triage-graph, the cross-check let 0 of 7 wrong diagnoses reach approval.
 * **The person deciding gets a briefing they can trust.** Pass `coordinator=` and a model chooses follow-up checks after the
   decision (what else is affected, a data probe, past cases), which cannot move the decision. Pass `communicator=` and the
   approver reads a few sentences a model wrote from the tracer's findings and those checks, checked against them first: no job the trace never touched, the root cause named, the

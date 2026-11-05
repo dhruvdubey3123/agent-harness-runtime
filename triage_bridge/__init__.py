@@ -8,7 +8,7 @@ in the middle of a fix resumes without re-running a load or posting the same tic
     python -m triage_bridge.demo        # real process kill in the middle of a fix, then recovery
     python -m triage_bridge.bench       # every approvable incident in the eval set, crashed and recovered
 """
-from .runner import NeedsReview, TriageInHarness
+from .runner import Incomplete, ModelUnavailable, NeedsReview, TriageInHarness
 from .warehouse import Warehouse
 
-__all__ = ["NeedsReview", "TriageInHarness", "Warehouse"]
+__all__ = ["Incomplete", "ModelUnavailable", "NeedsReview", "TriageInHarness", "Warehouse"]

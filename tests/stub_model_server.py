@@ -29,7 +29,7 @@ DIAGNOSER = [
 ]
 
 FIXER = [
-    ("patch_procedure", {"node": "sp_fill_rate", "change": "schema_drift"}),
+    ("patch_procedure", {"node": "sp_fill_rate"}),                      # the approved patch is supplied by Keel
     ("rerun_job", {"node": "load_cases"}),                     # nobody approved this
     ("rerun_job", {"node": "sp_fill_rate"}),
     ("refresh_table", {"node": "fct_workforce"}),

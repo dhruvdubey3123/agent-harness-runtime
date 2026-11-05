@@ -30,7 +30,7 @@ class Node(BaseModel):
 
 class Patch(BaseModel):
     node: str
-    change: str
+    change: str | None = None     # under an approval, supplied by the runtime from what a person approved
 
 
 class Comment(BaseModel):
@@ -72,11 +72,12 @@ class Warehouse:
             }
 
     def texts(self) -> dict:
-        """The wording a fixer chose. With a real model applying the plan, this is the model's own
-        writing, which is the part of the job an approval does not fix in advance."""
+        """What was written into the warehouse. Comments and audit lines are the fixer's own wording;
+        a patch is not: its content is whatever a person approved."""
         with self._db() as db:
             return {"comments": [r[0] for r in db.execute("select body from comments")],
-                    "audit": [r[0] for r in db.execute("select line from audit")]}
+                    "audit": [r[0] for r in db.execute("select line from audit")],
+                    "patches": {r[0]: r[1] for r in db.execute("select node, patched_for from procedures")}}
 
     def duplicated_actions(self) -> int:
         """Side effects that happened more than once: extra load runs, extra comments, extra audit lines."""
@@ -102,7 +103,8 @@ class Warehouse:
 
         @reg.tool("patch_procedure", "Deploy the reviewed fix to a stored procedure (CREATE OR REPLACE). Safe to repeat.",
                   Patch, idempotent=True, side_effects=True)
-        def patch_procedure(node: str, change: str) -> str:
+        def patch_procedure(node: str, change: str | None = None) -> str:
+            change = change or "unspecified"
             with self._db() as db:
                 db.execute("insert into procedures values (?,?,?) on conflict(node) do update set patched_for=excluded.patched_for, "
                            "patched_at=excluded.patched_at", (node, change, time.time()))

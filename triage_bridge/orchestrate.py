@@ -24,11 +24,12 @@ from triage.dag import PipelineDAG
 from triage.knowledge import CaseLibrary
 from triage.service import TriageService
 
-from harness import AgentSpec, Envelope, Harness, OpenAICompatModel, Policy, RecoveryPolicy, RunStore
+from harness import AgentSpec, Harness, OpenAICompatModel, Policy, RecoveryPolicy, RunStore
 
 from . import diagnoser
 from .diagnoser import Diagnosis, derive_plan
-from .runner import DATA, FIXER, KEY_FIELDS, TOOLS, Incomplete, NeedsReview, describe_task, plan_to_calls
+from .runner import (DATA, FIXER, TOOLS, Incomplete, ModelUnavailable, NeedsReview, approved_envelope, describe_task,
+                     plan_to_calls)
 from .warehouse import Warehouse
 
 
@@ -118,10 +119,17 @@ class TwoAgentTriage:
         return self._rules[cid]
 
     def review(self, cid: str) -> list[str]:
-        """Checks before a person sees the model's diagnosis as something to approve: the tracer has to
-        agree on the root cause, and the rules have to recognise the failure. The category is the
+        """Checks before a person sees the model's diagnosis as something to approve.
+
+        The tracer has to agree on the root cause, and every check the rules reviewer applies to its own
+        proposal applies here too: an unrecognised failure, an ambiguous trace, low confidence, a
+        protected table, a plan touching the wrong node. If the deterministic graph would not put this
+        incident up for approval, the model's version of it does not go up either. The category is the
         rules', because a model choosing from a list puts a familiar name on a failure nobody has seen
         (pipeline-triage-graph measured that on incidents 41-60)."""
+        diag = self.store.get_run(f"diag-{cid}")
+        if diag is not None and diag["status"] == "model_unavailable":
+            return [f"the diagnoser's model was unavailable, so there is no diagnosis: {diag['answer']}"]
         d = self.diagnosis(cid)
         if d is None:
             return ["the diagnoser submitted nothing"]
@@ -130,8 +138,7 @@ class TwoAgentTriage:
         if d.fix_target != base.get("fix_target"):
             issues.append(f"diagnoser and tracer disagree on the root cause ({d.fix_target} vs "
                           f"{base.get('fix_target')}); a person should decide from both")
-        if base.get("category") == "unknown":
-            issues.append("unrecognised failure category")
+        issues += list(base.get("review_issues") or [])
         if not d.reason:
             issues.append("no proposal to review")
         if d.fix_target in self.dag.protected:
@@ -143,7 +150,9 @@ class TwoAgentTriage:
         decision = self._case(cid).get("decision") if self._case_path(cid).exists() else None
         apply_run = self.store.get_run(f"apply-{cid}")
         briefing = self.rules(cid).get("briefing") if d is not None and self.communicator is not None else None
+        patch = self.rules(cid).get("proposal") if d is not None else None
         return {"case_id": cid, "diagnosis": d and vars(d), "review_issues": issues, "briefing": briefing,
+                "patch_to_approve": patch,
                 "waiting_for_human": not issues and decision is None,
                 "decision": decision, "apply_status": apply_run and apply_run["status"],
                 "outcome": ("escalated" if issues or decision == "reject"
@@ -166,8 +175,10 @@ class TwoAgentTriage:
         d = self.diagnosis(cid)
         if d is None or self._case(cid).get("decision") != "approve":
             raise Escalated(f"{cid} has no approved diagnosis")
-        calls = plan_to_calls(self.dag, cid, self.rules(cid)["category"], d.plan, d.reason)
-        envelope = Envelope.from_calls(calls, KEY_FIELDS)
+        base = self.rules(cid)
+        # The patch content is the one the person saw at the gate (patch_to_approve), not the model's prose.
+        calls = plan_to_calls(self.dag, cid, base["category"], d.plan, base.get("proposal") or d.reason)
+        envelope = approved_envelope(calls)
         agent = AgentSpec("fixer", FIXER, Policy(set(TOOLS), envelope=envelope),
                           max_steps=len(calls) + 5, max_retries=self.max_retries)
         rid = f"apply-{cid}"
@@ -183,6 +194,8 @@ class TwoAgentTriage:
             raise NeedsReview(rid, self.store.steps(rid)[-1])
         if run["status"] == "failed":
             raise Incomplete(f"{rid}: {run['answer']}")
+        if run["status"] == "model_unavailable":
+            raise ModelUnavailable(rid, run["answer"])
         return self.view(cid)
 
     # ------------------------------------------------------------------ after a crash

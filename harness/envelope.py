@@ -24,21 +24,28 @@ class ApprovedAction:
     """One action a person approved, and how many times it may happen.
 
     `match` holds the fields that decide what the action does to the world: which node is rerun,
-    which case is commented on. Those have to match exactly. Everything else is the model's to
-    write, which is the point of using a model at all: the wording of a resolution comment is its
-    job, the choice of what to touch is not.
+    which case is commented on, and what a patch actually changes. Those are fixed by the approval:
+    a model may leave them out and the runtime fills in the approved values, and a model that writes
+    a different value is refused. Everything else is the model's to write, which is the point of
+    using a model at all: the wording of a resolution comment is its job, the content of a patch
+    a person approved is not.
     """
 
     tool: str
     match: tuple[tuple[str, Any], ...] = ()
     times: int = 1
+    bound: tuple[str, ...] = ()        # the subset of `match` that is content (a patch), not a target
 
     def covers(self, call: ToolCall) -> bool:
         return call.tool == self.tool and all(call.args.get(k) == v for k, v in self.match)
 
     def __str__(self) -> str:
-        inner = ", ".join(f"{k}={v!r}" for k, v in self.match)
+        inner = ", ".join(f"{k}={_short(v)!r}" for k, v in self.match)
         return f"{self.tool}({inner})" + (f" x{self.times}" if self.times > 1 else "")
+
+
+def _short(v: Any) -> Any:
+    return v[:57] + "..." if isinstance(v, str) and len(v) > 60 else v
 
 
 @dataclass(frozen=True)
@@ -46,7 +53,8 @@ class Envelope:
     actions: tuple[ApprovedAction, ...]
 
     @classmethod
-    def from_calls(cls, calls: Sequence[ToolCall], key_fields: Mapping[str, Sequence[str]]) -> Envelope:
+    def from_calls(cls, calls: Sequence[ToolCall], key_fields: Mapping[str, Sequence[str]],
+                   bound_fields: Mapping[str, Sequence[str]] | None = None) -> Envelope:
         """Build an envelope from the concrete calls a plan expands to.
 
         Identical actions collapse into one entry with a count, so a plan that legitimately reruns
@@ -56,7 +64,27 @@ class Envelope:
         for c in calls:
             keys = tuple((k, c.args[k]) for k in key_fields.get(c.tool, ()) if k in c.args)
             counted[(c.tool, keys)] = counted.get((c.tool, keys), 0) + 1
-        return cls(tuple(ApprovedAction(tool, keys, n) for (tool, keys), n in counted.items()))
+        bound_fields = bound_fields or {}
+        return cls(tuple(ApprovedAction(tool, keys, n, tuple(k for k, _ in keys if k in bound_fields.get(tool, ())))
+                         for (tool, keys), n in counted.items()))
+
+    def bind(self, call: ToolCall, used: Mapping[int, int]) -> ToolCall:
+        """Fill in the approved values a call left out.
+
+        The patch a person approved is the patch that runs: the model names the action and the runtime
+        supplies the content, so there is nothing for the model to paraphrase, shorten or improve on.
+        Only filled when the approval leaves no doubt which values are meant.
+        """
+        fills = set()
+        for i, a in enumerate(self.actions):
+            if a.tool != call.tool or used.get(i, 0) >= a.times:
+                continue
+            if all(call.args[k] == v for k, v in a.match if k in call.args):
+                fills.add(tuple((k, v) for k, v in a.match if k not in call.args and k in a.bound))
+        if len(fills) != 1:
+            return call
+        missing = dict(next(iter(fills)))
+        return ToolCall(call.tool, {**call.args, **missing}) if missing else call
 
     def check(self, call: ToolCall, used: Mapping[int, int]) -> int:
         """Index of an approved action this call may be charged to, or ToolDenied with the reason.
@@ -73,6 +101,14 @@ class Envelope:
         if spent is not None:
             raise ToolDenied(f"the approved plan allows {spent} and that is already applied; "
                              "a person has to approve another one")
+        for a in self.actions:
+            if a.tool != call.tool:
+                continue
+            differs = [k for k, v in a.match if k in call.args and call.args[k] != v]
+            if differs and set(differs) <= set(a.bound):
+                raise ToolDenied(f"'{call.tool}' is approved here, but not with that {', '.join(differs)}: "
+                                 f"{', '.join(differs)} is fixed by the approval, so leave it out and the approved "
+                                 "value is used")
         raise ToolDenied(f"'{call.tool}' with those arguments is not in the approved plan. "
                          f"Approved: {self.describe()}")
 

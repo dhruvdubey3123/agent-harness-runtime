@@ -27,11 +27,11 @@ import tempfile
 import time
 from pathlib import Path
 
-from harness import AgentSpec, Envelope, Harness, OpenAICompatModel, Policy, RunStore, SimulatedCrash
+from harness import AgentSpec, Harness, OpenAICompatModel, Policy, RunStore, SimulatedCrash
 from harness.types import DENIED
 from triage.investigator import OpenAICompatChat
 
-from .runner import DATA, FIXER, KEY_FIELDS, TOOLS, NeedsReview, TriageInHarness, describe_task, plan_to_calls
+from .runner import DATA, FIXER, TOOLS, NeedsReview, TriageInHarness, approved_envelope, describe_task, plan_to_calls
 from .warehouse import Warehouse
 
 CASE = "SYN-007"
@@ -94,7 +94,7 @@ def approved_calls(t: TriageInHarness, view: dict) -> list:
 def clean(workdir: Path) -> None:
     t = TriageInHarness(workdir, fixer=model, communicator=briefer, coordinator=briefer)
     view = t.diagnose(INCIDENT)
-    envelope = Envelope.from_calls(approved_calls(t, view), KEY_FIELDS)
+    envelope = approved_envelope(approved_calls(t, view))
     v = t.decide(CASE, True)
     st, counts = t.apply_status(CASE), t.warehouse.counts()
     checks = (view.get("context_checks") or {}).get("calls", [])
@@ -167,7 +167,7 @@ def untrusted(workdir: Path) -> None:
     plan = TriageInHarness(workdir / "ref", fixer=model)
     view = plan.diagnose(INCIDENT)
     calls = approved_calls(plan, view)
-    envelope = Envelope.from_calls(calls, KEY_FIELDS)
+    envelope = approved_envelope(calls)
 
     warehouse = Warehouse(workdir / "warehouse.db")
     store = RunStore(workdir / "runs.db")
