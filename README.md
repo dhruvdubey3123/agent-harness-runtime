@@ -534,6 +534,15 @@ The model client speaks the OpenAI chat-completions API, so a hosted provider is
 **In scope, deliberately.** One machine, a SQLite run log, a SQLite stand-in for the warehouse and synthetic incidents. That
 keeps every guarantee testable end to end: each one has a test that fails when it is broken.
 
+**Two senses of "the fix worked", and only one of them is measured here.** Keel verifies that the approved actions were
+applied faithfully: the right ones, exactly once, nothing extra, through a crash. It does not verify that the pipeline was
+repaired, because the stand-in warehouse records that a procedure was patched and a job rerun without modelling whether the
+report came back. Proving the second sense needs a real pipeline behind the `Executor` and `DataProbe` interfaces, where a
+fix is confirmed by the report refreshing rather than by a row appearing. That is the production scope below, and the
+nearest proxy today is the diagnosis accuracy measured in
+[pipeline-triage-graph](https://github.com/dhruvdubey3123/pipeline-triage-graph#measured-two-models-held-out-incidents):
+how often the plan being applied is aimed at the right job in the first place.
+
 **Future scope 1: the model drafts the patch, a person approves it, Keel applies exactly that.** Today the approved patch
 is a template from the triage project. Keel already binds whatever patch is approved, so a model-drafted patch needs no
 change here; what it needs is ground truth in the triage eval to score drafts against (see
