@@ -2,6 +2,7 @@
 import json
 
 import httpx
+import pytest
 
 from harness import Finish, OpenAICompatModel, ToolCall
 
@@ -89,3 +90,53 @@ def test_output_the_provider_could_not_parse_is_asked_again(monkeypatch):
     monkeypatch.setattr(httpx, "post", lambda *a, **k: R(replies.pop(0)))
     monkeypatch.setattr(hm.time, "sleep", lambda s: None)
     assert OpenAICompatModel().next_action([{"role": "user", "content": "x"}], []) == Finish("recovered")
+
+
+GROQ_429 = ('{"error":{"message":"Rate limit reached for model `openai/gpt-oss-120b` ... on tokens per minute '
+            '(TPM): Limit 8000, Used 7500, Requested 1200. Please try again in 7m2.5s."}}')
+
+
+def rate_limited(text=GROQ_429, headers=None):
+    class R(FakeResponse):
+        def __init__(self):
+            super().__init__({"choices": [{"message": {"content": "ok"}}]})
+            self.status_code, self.headers, self.text = 429, headers or {}, text
+
+        def raise_for_status(self):
+            raise httpx.HTTPStatusError("429", request=None, response=self)
+
+    return R()
+
+
+def test_the_providers_own_wait_is_honoured_not_capped_at_a_guess(monkeypatch):
+    """Groq asks for minutes when the per-minute budget is gone. Sleeping 60s six times and failing
+    anyway wasted the retries and hid the reason."""
+    import harness.model as hm
+    slept = []
+    monkeypatch.setattr(hm.time, "sleep", slept.append)
+    calls = [rate_limited(), FakeResponse({"choices": [{"message": {"content": "through"}}]})]
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: calls.pop(0))
+    monkeypatch.setenv("HARNESS_MAX_WAIT", "600")
+    assert OpenAICompatModel().next_action([{"role": "user", "content": "x"}], []) == Finish("through")
+    assert slept == [422.5]
+
+
+def test_a_wait_longer_than_we_will_sit_through_fails_with_the_reason(monkeypatch):
+    import harness.model as hm
+    monkeypatch.setattr(hm.time, "sleep", lambda s: pytest.fail("should not sleep"))
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: rate_limited())
+    monkeypatch.setenv("HARNESS_MAX_WAIT", "60")
+    with pytest.raises(httpx.HTTPStatusError) as e:
+        OpenAICompatModel().next_action([{"role": "user", "content": "x"}], [])
+    assert "tokens per minute" in str(e.value)
+
+
+def test_the_retry_after_header_wins_when_it_is_there(monkeypatch):
+    import harness.model as hm
+    slept = []
+    monkeypatch.setattr(hm.time, "sleep", slept.append)
+    calls = [rate_limited(text="", headers={"retry-after": "12"}),
+             FakeResponse({"choices": [{"message": {"content": "through"}}]})]
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: calls.pop(0))
+    assert OpenAICompatModel().next_action([{"role": "user", "content": "x"}], []) == Finish("through")
+    assert slept == [12.0]

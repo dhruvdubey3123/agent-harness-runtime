@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 import time
 from typing import Protocol
 
@@ -44,10 +45,37 @@ def _unparsable(r) -> bool:
     return r.status_code == 400 and "could not be parsed" in (getattr(r, "text", "") or "")
 
 
-def _wait(r, attempt: int) -> float:
-    if _rate_limited(r):
-        return min(float(r.headers.get("retry-after") or 2 ** attempt * 2), 60.0)
-    return 0.5
+def _retry_after(r) -> float | None:
+    """How long the provider asked us to wait, in seconds. Groq sends it as a number of seconds, and
+    says the same thing in prose ("Please try again in 7m2.5s") when the header is missing."""
+    header = r.headers.get("retry-after") if hasattr(r, "headers") else None
+    if header:
+        try:
+            return float(header)
+        except ValueError:
+            pass
+    m = re.search(r"try again in (?:(\d+)m)?([\d.]+)s", getattr(r, "text", "") or "")
+    return int(m.group(1) or 0) * 60 + float(m.group(2)) if m else None
+
+
+def _wait(r, attempt: int, max_wait: float) -> float | None:
+    """Seconds to sleep before asking again, or None to stop trying.
+
+    A provider that asks for longer than we are willing to wait is telling us the budget is gone, not
+    that it is busy: waiting the maximum and failing anyway would only hide the reason.
+    """
+    if not _rate_limited(r):
+        return 0.5
+    asked = _retry_after(r)
+    if asked is None:
+        return min(2 ** attempt * 2, max_wait)
+    return asked if asked <= max_wait else None
+
+def _note(r, pause: float) -> None:
+    """A long wait with no output looks like a hang, so say what is happening."""
+    if pause >= 5:
+        why = "rate limited" if _rate_limited(r) else "output could not be parsed"
+        print(f"  [{why}, waiting {pause:.0f}s]", file=sys.stderr, flush=True)
 
 
 def _raise_with_body(r) -> None:
@@ -116,6 +144,7 @@ class OpenAICompatModel:
         self.timeout = timeout
         self.temperature = temperature
         self.retries = int(os.environ.get("HARNESS_RETRIES", "6"))
+        self.max_wait = float(os.environ.get("HARNESS_MAX_WAIT", "180"))
 
     @staticmethod
     def _tools(tools: list[dict]) -> list[dict]:
@@ -150,8 +179,11 @@ class OpenAICompatModel:
             r = httpx.post(f"{self.base_url}/chat/completions", json=body, timeout=self.timeout,
                            headers={"Authorization": f"Bearer {self.api_key}"})
             if attempt < self.retries and (_rate_limited(r) or _unparsable(r)):
-                time.sleep(_wait(r, attempt))
-                continue
+                pause = _wait(r, attempt, self.max_wait)
+                if pause is not None:
+                    _note(r, pause)
+                    time.sleep(pause)
+                    continue
             break
         _raise_with_body(r)
         msg = r.json()["choices"][0]["message"]
