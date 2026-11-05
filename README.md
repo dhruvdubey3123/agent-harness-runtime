@@ -195,6 +195,11 @@ The two agents are deliberately unequal.
 * **What it submits is checked before a person sees it.** An unknown category, a node that is not in the pipeline, or a table
   nobody may patch directly come back as an error the model can read and correct. The plan itself is not up for negotiation:
   once the target is known, what else to re-run is pipeline structure, so it is derived rather than proposed.
+* **The tracer checks its work before a person does.** The deterministic triage graph runs on the same incident; if it
+  names a different root cause, or the rules cannot recognise the failure at all, the case goes to a person with both
+  answers instead of to the approval gate. The category is the rules': on incidents 41 to 60 a model choosing from a list
+  put a familiar name on 4 failures nobody had seen, which would otherwise have looked routine. Measured in
+  pipeline-triage-graph, the cross-check let 0 of 7 wrong diagnoses reach approval.
 * **The fixer has power and no judgment.** It writes to the warehouse, and only the approved actions, as above.
 * **The diagnosis is read back out of the run log, not held in memory.** Kill the process during the diagnosis and the next one
   picks it up; kill it during the fix and the next one finishes without repeating an action. Both agents are runs in one SQLite

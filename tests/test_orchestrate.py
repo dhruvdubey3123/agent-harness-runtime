@@ -142,3 +142,44 @@ def test_the_diagnosis_benchmark_scores_both_paths(model, tmp_path):
     assert res["model_diagnoser"]["category correct"] == "1/1"
     assert res["rule_based_tracer"]["root cause correct"] == "1/1"
     assert res["raw"]["model"][0]["cause"] == "load_cases"
+
+
+# ------------------------------------------------------------------ the tracer checks the model's work
+
+def scripted(*calls):
+    from harness import Finish, ScriptedModel, ToolCall
+    return ScriptedModel([ToolCall(n, a) for n, a in calls] + [Finish("submitted")])
+
+
+def test_a_diagnosis_the_tracer_disagrees_with_never_reaches_approval(tmp_path):
+    wrong = {"category": "schema_drift", "fix_target": "load_cases", "reason": "load_cases changed a column."}
+    t = TwoAgentTriage(tmp_path, model=scripted(("submit_diagnosis", wrong)))
+    v = t.diagnose(INC)
+    assert not v["waiting_for_human"] and any("disagree on the root cause" in i for i in v["review_issues"])
+    with pytest.raises(Escalated):
+        t.decide(CASE, True)
+    assert t.warehouse.counts()["job_runs"] == {}
+
+
+def test_a_failure_the_rules_do_not_recognise_goes_to_a_person_whatever_the_model_calls_it(tmp_path):
+    """Regression from a real Qwen3 8B run in pipeline-triage-graph: on failures the rules call
+    'unknown', the model named a familiar category and the incident looked routine."""
+    import copy
+
+    from triage.dag import PipelineDAG
+    from triage.knowledge import CaseLibrary
+    from triage.service import TriageService
+
+    rows = [json.loads(line) for line in (DATA / "incidents.jsonl").read_text().splitlines()]
+    inc = next(r for r in rows if r["id"] == "SYN-043")
+    bare = {k: v for k, v in inc.items() if k != "label"}
+    lib = CaseLibrary.load(DATA / "case_library.yaml")
+    right = TriageService(PipelineDAG.from_yaml(DATA / "pipeline.yaml"), CaseLibrary(copy.deepcopy(lib.cases))
+                          ).open(bare)[1]["fix_target"]
+
+    t = TwoAgentTriage(tmp_path, model=scripted(("submit_diagnosis", {"category": "schema_drift",
+                                                                       "fix_target": right, "reason": "x"})))
+    v = t.diagnose(inc)
+    assert v["diagnosis"]["fix_target"] == right                     # right place
+    assert "unrecognised failure category" in v["review_issues"]     # and still a person's call
+    assert not v["waiting_for_human"]

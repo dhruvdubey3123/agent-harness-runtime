@@ -16,11 +16,13 @@ sandbox. The rule-based graph in triage_bridge/runner.py is the baseline this is
 """
 from __future__ import annotations
 
+import copy
 import json
 from pathlib import Path
 
 from triage.dag import PipelineDAG
 from triage.knowledge import CaseLibrary
+from triage.service import TriageService
 
 from harness import AgentSpec, Envelope, Harness, OpenAICompatModel, Policy, RecoveryPolicy, RunStore
 
@@ -48,6 +50,7 @@ class TwoAgentTriage:
         self.max_retries = max_retries
         self.fault_hook = fault_hook
         self.max_steps = max_steps
+        self._rules: dict[str, dict] = {}
 
     def close(self) -> None:
         """Release the run log. Needed wherever the working directory is deleted after, since
@@ -99,14 +102,31 @@ class TwoAgentTriage:
             h.resume(spec, rid)
         return self.view(cid)
 
+    def rules(self, cid: str) -> dict:
+        """What the deterministic triage graph makes of the same incident: the tracer's root cause and
+        the rules' category. It changes nothing (the graph stops before its gate), and it is the
+        cross-check the model's diagnosis has to agree with before a person is asked to approve it."""
+        if cid not in self._rules:
+            inc = dict(self._case(cid)["incident"])
+            inc.pop("label", None)
+            lib = CaseLibrary(copy.deepcopy(self.library.cases))       # its learn step must not touch ours
+            self._rules[cid] = TriageService(self.dag, lib).open(inc)[1]
+        return self._rules[cid]
+
     def review(self, cid: str) -> list[str]:
-        """The same cheap checks the rule-based graph applies to its own proposal, applied to the
-        model's. A diagnosis nobody can act on should not reach a person as something to approve."""
+        """Checks before a person sees the model's diagnosis as something to approve: the tracer has to
+        agree on the root cause, and the rules have to recognise the failure. The category is the
+        rules', because a model choosing from a list puts a familiar name on a failure nobody has seen
+        (pipeline-triage-graph measured that on incidents 41-60)."""
         d = self.diagnosis(cid)
         if d is None:
             return ["the diagnoser submitted nothing"]
+        base = self.rules(cid)
         issues = []
-        if d.category == "unknown":
+        if d.fix_target != base.get("fix_target"):
+            issues.append(f"diagnoser and tracer disagree on the root cause ({d.fix_target} vs "
+                          f"{base.get('fix_target')}); a person should decide from both")
+        if base.get("category") == "unknown":
             issues.append("unrecognised failure category")
         if not d.reason:
             issues.append("no proposal to review")
@@ -141,7 +161,7 @@ class TwoAgentTriage:
         d = self.diagnosis(cid)
         if d is None or self._case(cid).get("decision") != "approve":
             raise Escalated(f"{cid} has no approved diagnosis")
-        calls = plan_to_calls(self.dag, cid, d.category, d.plan, d.reason)
+        calls = plan_to_calls(self.dag, cid, self.rules(cid)["category"], d.plan, d.reason)
         envelope = Envelope.from_calls(calls, KEY_FIELDS)
         agent = AgentSpec("fixer", FIXER, Policy(set(TOOLS), envelope=envelope),
                           max_steps=len(calls) + 5, max_retries=self.max_retries)
