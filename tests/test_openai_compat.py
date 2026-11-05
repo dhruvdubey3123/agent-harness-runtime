@@ -67,3 +67,25 @@ def test_a_rate_limited_free_tier_is_waited_out(monkeypatch):
     monkeypatch.setattr(httpx, "post", lambda *a, **k: R(replies.pop(0)))
     monkeypatch.setattr(hm.time, "sleep", lambda s: None)
     assert OpenAICompatModel().next_action([{"role": "user", "content": "x"}], []) == Finish("done")
+
+
+def test_output_the_provider_could_not_parse_is_asked_again(monkeypatch):
+    """Groq answers 400 when it cannot turn gpt-oss-120b's output into a tool call. Nothing ran, so the
+    question is asked again rather than pausing the run."""
+    import harness.model as hm
+    replies = [400, 200]
+
+    class R(FakeResponse):
+        text = '{"error":{"message":"Parsing failed. The model generated output that could not be parsed."}}'
+
+        def __init__(self, code):
+            super().__init__({"choices": [{"message": {"content": "recovered"}}]})
+            self.status_code, self.headers = code, {}
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise httpx.HTTPStatusError("err", request=None, response=self)
+
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: R(replies.pop(0)))
+    monkeypatch.setattr(hm.time, "sleep", lambda s: None)
+    assert OpenAICompatModel().next_action([{"role": "user", "content": "x"}], []) == Finish("recovered")
