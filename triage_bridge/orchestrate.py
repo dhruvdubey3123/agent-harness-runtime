@@ -38,7 +38,8 @@ class Escalated(Exception):
 
 class TwoAgentTriage:
     def __init__(self, workdir: str | Path, model=None, recovery: RecoveryPolicy | None = None,
-                 max_retries: int = 2, fault_hook=None, max_steps: int = 14, communicator=None):
+                 max_retries: int = 2, fault_hook=None, max_steps: int = 14, communicator=None,
+                 coordinator=None):
         self.dir = Path(workdir)
         (self.dir / "cases").mkdir(parents=True, exist_ok=True)
         self.dag = PipelineDAG.from_yaml(DATA / "pipeline.yaml")
@@ -52,6 +53,7 @@ class TwoAgentTriage:
         self.max_steps = max_steps
         self._rules: dict[str, dict] = {}
         self.communicator = communicator      # writes the briefing at the gate from the tracer's findings
+        self.coordinator = coordinator        # chooses follow-up checks for that briefing, after the decision
 
     def close(self) -> None:
         """Release the run log. Needed wherever the working directory is deleted after, since
@@ -111,7 +113,8 @@ class TwoAgentTriage:
             inc = dict(self._case(cid)["incident"])
             inc.pop("label", None)
             lib = CaseLibrary(copy.deepcopy(self.library.cases))       # its learn step must not touch ours
-            self._rules[cid] = TriageService(self.dag, lib, communicator=self.communicator).open(inc)[1]
+            self._rules[cid] = TriageService(self.dag, lib, communicator=self.communicator,
+                                           coordinator=self.coordinator).open(inc)[1]
         return self._rules[cid]
 
     def review(self, cid: str) -> list[str]:

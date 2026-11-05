@@ -92,12 +92,15 @@ def approved_calls(t: TriageInHarness, view: dict) -> list:
 # ------------------------------------------------------------------ 1. clean apply
 
 def clean(workdir: Path) -> None:
-    t = TriageInHarness(workdir, fixer=model, communicator=briefer)
+    t = TriageInHarness(workdir, fixer=model, communicator=briefer, coordinator=briefer)
     view = t.diagnose(INCIDENT)
     envelope = Envelope.from_calls(approved_calls(t, view), KEY_FIELDS)
     v = t.decide(CASE, True)
     st, counts = t.apply_status(CASE), t.warehouse.counts()
-    info = {"briefing the approver read": view.get("briefing"),
+    checks = (view.get("context_checks") or {}).get("calls", [])
+    info = {"follow-up checks the model chose": [f'{c["tool"]}({", ".join(map(str, c["args"].values()))})'
+                                                 + ("" if c["ok"] else f' -> {c["result"]}') for c in checks],
+            "briefing the approver read": view.get("briefing"),
             "briefing came from": view.get("briefing_source"),
             "briefing problems": view.get("briefing_problems") or ["none"],
             "approved": envelope.describe(), "plan": view["plan"], "outcome": v["outcome"],

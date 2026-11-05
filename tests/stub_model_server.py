@@ -39,7 +39,14 @@ FIXER = [
     ("append_audit", {"line": "SYN-007: fix applied by the stub fixer"}),
 ]
 
-DONE = {"communicator": "<think>keep to the findings</think>\n" + "{briefing}",
+COORDINATOR = [
+    ("downstream", {"node": "sp_fill_rate"}),           # what the fix will touch
+    ("probe", {"node": "load_cases"}),                  # the data around the upstream change
+    ("finish", {}),
+]
+
+DONE = {"coordinator": "done",
+        "communicator": "<think>keep to the findings</think>\n" + "{briefing}",
         "diagnoser": "<think>that is the root cause</think>\nDiagnosis submitted.",
         "fixer": "<think>every approved action is applied</think>\nApplied the approved plan."}
 
@@ -53,6 +60,8 @@ def script_for(body: dict) -> tuple[str, list]:
     if not body.get("tools"):                           # the communicator: findings in, briefing out, no tools
         return "communicator", []
     offered = {t["function"]["name"] for t in body.get("tools", [])}
+    if "finish" in offered:                             # the coordinator: follow-up checks, after the decision
+        return "coordinator", COORDINATOR
     return ("diagnoser", DIAGNOSER) if "submit_diagnosis" in offered else ("fixer", FIXER)
 
 

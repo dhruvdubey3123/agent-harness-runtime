@@ -200,11 +200,12 @@ The two agents are deliberately unequal.
   answers instead of to the approval gate. The category is the rules': on incidents 41 to 60 a model choosing from a list
   put a familiar name on 4 failures nobody had seen, which would otherwise have looked routine. Measured in
   pipeline-triage-graph, the cross-check let 0 of 7 wrong diagnoses reach approval.
-* **The person deciding gets a briefing they can trust.** Pass `communicator=` and the approver reads a few sentences a model
-  wrote from the tracer's findings, checked against them first: no job the trace never touched, the root cause named, the
+* **The person deciding gets a briefing they can trust.** Pass `coordinator=` and a model chooses follow-up checks after the
+  decision (what else is affected, a data probe, past cases), which cannot move the decision. Pass `communicator=` and the
+  approver reads a few sentences a model wrote from the tracer's findings and those checks, checked against them first: no job the trace never touched, the root cause named, the
   category unchanged, otherwise a template from the same findings. It is triage's own step
   ([triage/communicator.py](https://github.com/dhruvdubey3123/pipeline-triage-graph#the-communicator-the-llm-explains-the-trace-stays-the-facts)),
-  the role the LLM had in the original Allegis agent, where the traversal itself stayed deterministic.
+  the role the LLM had in the original Allegis agent, orchestrating and explaining while the traversal stayed deterministic.
 * **The fixer has power and no judgment.** It writes to the warehouse, and only the approved actions, as above.
 * **The diagnosis is read back out of the run log, not held in memory.** Kill the process during the diagnosis and the next one
   picks it up; kill it during the fix and the next one finishes without repeating an action. Both agents are runs in one SQLite
