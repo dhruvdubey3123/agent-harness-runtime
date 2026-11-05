@@ -212,26 +212,30 @@ The two agents are deliberately unequal.
 
 ### Is the model any good at it?
 
-The 100 incidents carry labels, so this is measurable. Qwen3 8B (local, Ollama, RTX 4060) on the first 20, against the deterministic
-tracer on the same 20:
+The 100 incidents carry labels, so this is measurable. Qwen3 8B, local through Ollama on an RTX 4060, against the deterministic
+tracer on the same incidents:
 
-| First 20 labelled incidents | Qwen3 8B diagnoser | Rule-based tracer |
-|---|---|---|
-| Root cause identified correctly | 13 / 20 | 20 / 20 |
-| Category identified correctly | 15 / 20 | 17 / 20 |
-| Submitted a diagnosis at all | 20 / 20 | n/a |
-| Mean tool calls | 5.0 | n/a |
-| Wall clock | 1707 s | 0.1 s |
+| Labelled incidents | Qwen3 8B, incidents 1 to 20 | Qwen3 8B, incidents 21 to 40 (held out) | Qwen3 8B, all 40 | Tracer, all 40 |
+|---|---|---|---|---|
+| Root cause identified correctly | 13 / 20 | 15 / 20 | **28 / 40** | 40 / 40 |
+| Category identified correctly | 15 / 20 | 13 / 20 | **28 / 40** | 36 / 40 |
+| Submitted a diagnosis at all | 20 / 20 | 20 / 20 | 40 / 40 | n/a |
+| Mean tool calls | 5.0 | 4.3 | | n/a |
+| Wall clock | 1707 s | 1342 s | | 0.1 s |
 
 The tracer is better, as it should be: it was written for this pipeline, and the model has to rediscover the structure on every
-incident. The 8B model gets about two thirds of the root causes. The more useful result is *how* it fails, and one failure was
-the harness's fault. In the end-to-end run the model submitted the correct node (`sp_fill_rate`) three times, then changed its
-mind and submitted the wrong one (`load_cases`) three more, and the run kept the last. A model told to "submit once" will not
-reliably do so, so **"once" is now enforced by the harness**: `AgentSpec.finish_on` ends the run at the first valid call to a
-terminal tool. Invalid submissions still go back to the model as errors it can correct; only a valid one ends the run.
+incident. The 8B model finds the root cause about 70% of the time, which is the number that decides how it can be used: as a
+second opinion next to the tracer, behind a person, and never as the thing that acts. The diagnosis has no tool that changes
+anything for exactly this reason.
 
-That change was made after looking at failures on these 20, so the 13/20 above is the *before*. The honest *after* has to come from
-incidents the change was not designed on: `python -m triage_bridge.diag_bench --skip 20 --limit 20`.
+The more useful result was *how* it failed, and one failure was the harness's fault. In the end-to-end run the model submitted the
+correct node (`sp_fill_rate`) three times, then changed its mind and submitted the wrong one (`load_cases`) three more, and the run
+kept the last. A model told to "submit once" will not reliably do so, so **"once" is now enforced by the harness**:
+`AgentSpec.finish_on` ends the run at the first valid call to a terminal tool. Invalid submissions still go back to the model as
+errors it can correct; only a valid one ends the run.
+
+That change was made after looking at the first 20, so incidents 21 to 40 were run afterwards as a held-out sample. The two samples
+are different incidents, so 13 then 15 is not evidence that the change helped; the combined 28 of 40 is the figure to quote.
 
 Nothing is applied during that benchmark, so a wrong answer costs a wrong row and nothing else.
 
