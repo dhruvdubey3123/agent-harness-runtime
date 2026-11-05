@@ -122,9 +122,11 @@ class HarnessExecutor:
 
 class TriageInHarness:
     def __init__(self, workdir: str | Path, fault_hook=None, min_confidence: float = 0.5,
-                 recovery: RecoveryPolicy | None = None, max_retries: int = 2, fixer="scripted"):
+                 recovery: RecoveryPolicy | None = None, max_retries: int = 2, fixer="scripted", communicator=None):
         """fixer: "scripted" replays the approved plan, "model" hands it to a local open-weight
-        model through an OpenAI-compatible server, and any object with next_action is used as is."""
+        model through an OpenAI-compatible server, and any object with next_action is used as is.
+        communicator: a chat model that writes the briefing the person at the gate reads, from the
+        tracer's findings, checked against them (pipeline-triage-graph's triage/communicator.py)."""
         self.dir = Path(workdir)
         self.dir.mkdir(parents=True, exist_ok=True)
         self.dag = PipelineDAG.from_yaml(DATA / "pipeline.yaml")
@@ -137,7 +139,8 @@ class TriageInHarness:
         self.executor = HarnessExecutor(self)
         self._graph_db = sqlite3.connect(str(self.dir / "triage_graph.db"), check_same_thread=False)
         self.service = TriageService(self.dag, CaseLibrary.load(DATA / "case_library.yaml"), executor=self.executor,
-                                     checkpointer=SqliteSaver(self._graph_db), min_confidence=min_confidence)
+                                     checkpointer=SqliteSaver(self._graph_db), min_confidence=min_confidence,
+                                     communicator=communicator)
 
     def close(self) -> None:
         """Both SQLite files, released. Needed wherever the working directory is deleted after,

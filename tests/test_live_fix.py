@@ -37,6 +37,8 @@ def test_every_check_in_the_live_script_holds(live, tmp_path):
     live.two_agents(tmp_path / "two_agents")
     assert [name for name, c in live.report["checks"].items() if not c["pass"]] == []
     assert live.report["checks"]["two_agents"]["root cause correct"]
+    clean = live.report["checks"]["clean_apply"]
+    assert clean["briefing came from"] == "model" and "sp_fill_rate" in clean["briefing the approver read"]
     if openfiles.available:   # a script someone runs on Windows should not leave files open either
         assert openfiles.open_db_files() - before == set()
 

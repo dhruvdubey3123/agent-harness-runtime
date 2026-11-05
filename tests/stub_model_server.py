@@ -39,11 +39,19 @@ FIXER = [
     ("append_audit", {"line": "SYN-007: fix applied by the stub fixer"}),
 ]
 
-DONE = {"diagnoser": "<think>that is the root cause</think>\nDiagnosis submitted.",
+DONE = {"communicator": "<think>keep to the findings</think>\n" + "{briefing}",
+        "diagnoser": "<think>that is the root cause</think>\nDiagnosis submitted.",
         "fixer": "<think>every approved action is applied</think>\nApplied the approved plan."}
 
 
+BRIEFING = ("The workforce report went stale because sp_fill_rate failed after load_cases renamed a column. "
+            "The plan patches sp_fill_rate, then refreshes fct_workforce and rpt_workforce. "
+            "Nothing was flagged; it is waiting for approval.")
+
+
 def script_for(body: dict) -> tuple[str, list]:
+    if not body.get("tools"):                           # the communicator: findings in, briefing out, no tools
+        return "communicator", []
     offered = {t["function"]["name"] for t in body.get("tools", [])}
     return ("diagnoser", DIAGNOSER) if "submit_diagnosis" in offered else ("fixer", FIXER)
 
@@ -61,7 +69,7 @@ class Handler(BaseHTTPRequestHandler):
             msg = {"tool_calls": [{"id": f"c{n}", "type": "function",
                                    "function": {"name": name, "arguments": json.dumps(args)}}]}
         else:
-            msg = {"content": DONE[role]}
+            msg = {"content": DONE[role].replace("{briefing}", BRIEFING)}
         out = json.dumps({"choices": [{"message": msg}]}).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")

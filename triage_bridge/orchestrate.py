@@ -38,7 +38,7 @@ class Escalated(Exception):
 
 class TwoAgentTriage:
     def __init__(self, workdir: str | Path, model=None, recovery: RecoveryPolicy | None = None,
-                 max_retries: int = 2, fault_hook=None, max_steps: int = 14):
+                 max_retries: int = 2, fault_hook=None, max_steps: int = 14, communicator=None):
         self.dir = Path(workdir)
         (self.dir / "cases").mkdir(parents=True, exist_ok=True)
         self.dag = PipelineDAG.from_yaml(DATA / "pipeline.yaml")
@@ -51,6 +51,7 @@ class TwoAgentTriage:
         self.fault_hook = fault_hook
         self.max_steps = max_steps
         self._rules: dict[str, dict] = {}
+        self.communicator = communicator      # writes the briefing at the gate from the tracer's findings
 
     def close(self) -> None:
         """Release the run log. Needed wherever the working directory is deleted after, since
@@ -110,7 +111,7 @@ class TwoAgentTriage:
             inc = dict(self._case(cid)["incident"])
             inc.pop("label", None)
             lib = CaseLibrary(copy.deepcopy(self.library.cases))       # its learn step must not touch ours
-            self._rules[cid] = TriageService(self.dag, lib).open(inc)[1]
+            self._rules[cid] = TriageService(self.dag, lib, communicator=self.communicator).open(inc)[1]
         return self._rules[cid]
 
     def review(self, cid: str) -> list[str]:
@@ -138,7 +139,8 @@ class TwoAgentTriage:
         d, issues = self.diagnosis(cid), self.review(cid)
         decision = self._case(cid).get("decision") if self._case_path(cid).exists() else None
         apply_run = self.store.get_run(f"apply-{cid}")
-        return {"case_id": cid, "diagnosis": d and vars(d), "review_issues": issues,
+        briefing = self.rules(cid).get("briefing") if d is not None and self.communicator is not None else None
+        return {"case_id": cid, "diagnosis": d and vars(d), "review_issues": issues, "briefing": briefing,
                 "waiting_for_human": not issues and decision is None,
                 "decision": decision, "apply_status": apply_run and apply_run["status"],
                 "outcome": ("escalated" if issues or decision == "reject"

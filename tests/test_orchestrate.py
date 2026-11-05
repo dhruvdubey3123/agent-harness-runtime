@@ -183,3 +183,13 @@ def test_a_failure_the_rules_do_not_recognise_goes_to_a_person_whatever_the_mode
     assert v["diagnosis"]["fix_target"] == right                     # right place
     assert "unrecognised failure category" in v["review_issues"]     # and still a person's call
     assert not v["waiting_for_human"]
+
+
+
+def test_the_person_at_the_gate_gets_the_checked_briefing(model, tmp_path):
+    from triage.investigator import OpenAICompatChat
+    briefer = OpenAICompatChat(model="stub", base_url=model.base_url)
+    with TwoAgentTriage(tmp_path, model=model, communicator=briefer) as t:
+        v = t.diagnose(INC)
+        assert v["waiting_for_human"] and "sp_fill_rate" in v["briefing"]
+        assert t.rules(CASE)["briefing_source"] == "model"
