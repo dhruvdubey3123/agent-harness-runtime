@@ -148,6 +148,10 @@ def check_invariants(metrics: dict, baseline: dict) -> dict[str, bool]:
         "every_run_exactly_once": raw["resume"]["runs_exactly_once"] == raw["reached_gate"],
         "every_run_finished": raw["resume"]["finished"] == raw["reached_gate"],
         "gate_accuracy_not_reduced": gate >= base_gate,
+        # Cheaper to pass than it looks, and it closes the loophole the other four leave open: a
+        # policy that guesses an action already happened finishes unattended, which is what the
+        # loop is optimising for, and leaves the report stale.
+        "every_incident_resolved": raw["resume"].get("symptom_resolved") == raw["reached_gate"],
     }
 
 

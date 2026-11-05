@@ -79,6 +79,15 @@ class Warehouse:
                     "audit": [r[0] for r in db.execute("select line from audit")],
                     "patches": {r[0]: r[1] for r in db.execute("select node, patched_for from procedures")}}
 
+    def actions(self) -> list[tuple[str, str]]:
+        """Every action that changed a node, in the order it happened. What the outcome is replayed from."""
+        with self._db() as db:
+            rows = db.execute(
+                "select 'patch_procedure', node, patched_at from procedures "
+                "union all select 'rerun_job', node, at from job_runs "
+                "union all select 'refresh_table', node, at from refreshes order by 3").fetchall()
+        return [(a, n) for a, n, _ in rows]
+
     def duplicated_actions(self) -> int:
         """Side effects that happened more than once: extra load runs, extra comments, extra audit lines."""
         c = self.counts()

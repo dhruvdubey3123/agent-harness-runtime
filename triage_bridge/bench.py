@@ -8,6 +8,11 @@ runs, or after it ran but before the log recorded it). Then:
 * restart: what a system without a run log does, run the whole approved plan again
 * resume:  the harness reads its log; if it stops for review, a person checks the warehouse once
 
+Both are then asked a second question, which is not about the runtime at all: did the incident get
+resolved. Running the approved actions exactly once is what the harness is responsible for, and a
+plan aimed at the wrong node satisfies it completely. `outcome` replays the recorded actions against
+the pipeline's structure to see whether the node the person complained about came back.
+
     python -m triage_bridge.bench --seed 1
 """
 from __future__ import annotations
@@ -20,6 +25,7 @@ from pathlib import Path
 
 from harness import Harness, RecoveryPolicy, RunStore, ScriptedModel, SimulatedCrash
 
+from . import outcome
 from .runner import DATA, NeedsReview, TriageInHarness, plan_to_calls
 from .warehouse import Warehouse
 
@@ -46,9 +52,11 @@ def run(seed: int = 1, recovery: RecoveryPolicy | None = None, min_confidence: f
     if limit:
         incidents = incidents[:limit]
     out = {"incidents": len(incidents), "reached_gate": 0, "escalated_by_triage": 0, "gate_matches_label": 0,
-           "restart": {"runs_with_duplicate": 0, "duplicate_actions": 0, "runs_exactly_once": 0},
+           "restart": {"runs_with_duplicate": 0, "duplicate_actions": 0, "runs_exactly_once": 0,
+                       "symptom_resolved": 0},
            "resume": {"runs_with_duplicate": 0, "duplicate_actions": 0, "finished_unattended": 0, "stopped_for_review": 0,
-                      "finished": 0, "runs_exactly_once": 0, "dropped_actions": 0, "paused_on": {}}}
+                      "finished": 0, "runs_exactly_once": 0, "dropped_actions": 0, "symptom_resolved": 0,
+                      "still_broken": [], "paused_on": {}}}
     for inc in incidents:
         with tempfile.TemporaryDirectory() as d:
             open_runs = []   # every SQLite file is released before the directory goes
@@ -96,14 +104,19 @@ def run(seed: int = 1, recovery: RecoveryPolicy | None = None, min_confidence: f
                     out[strategy]["runs_exactly_once"] += exactly_once(wh, calls)
                     out[strategy]["duplicate_actions"] += dup
                     out[strategy]["runs_with_duplicate"] += dup > 0
+                    fixed = outcome.resolved(t.dag, inc, wh)
+                    out[strategy]["symptom_resolved"] += fixed
                     if strategy == "resume":
                         out["resume"]["dropped_actions"] += missing_actions(wh, calls)
+                        if not fixed:
+                            out["resume"]["still_broken"].append(
+                                f'{inc["id"]}: {outcome.explain(t.dag, inc, wh)}')
             finally:
                 for r in open_runs:
                     r.close()
     out["raw"] = {"reached_gate": out["reached_gate"], "resume": dict(out["resume"]), "restart": dict(out["restart"])}
     n = out["reached_gate"]
-    for k in ("runs_with_duplicate", "runs_exactly_once"):
+    for k in ("runs_with_duplicate", "runs_exactly_once", "symptom_resolved"):
         out["restart"][k] = f'{out["restart"][k]}/{n}'
         out["resume"][k] = f'{out["resume"][k]}/{n}'
     for k in ("finished_unattended", "stopped_for_review", "finished"):

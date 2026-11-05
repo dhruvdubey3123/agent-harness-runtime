@@ -10,6 +10,9 @@ decides nothing. This script hands the same plan to a local model and keeps the 
   4. both agents        the model also does the diagnosis, with read-only tools, and the fix it
                         then applies is the one a person approved, through a crash
 
+Checks 1, 2 and 4 also report whether the incident was resolved, which is a separate question from
+whether the approved actions happened. See `outcome`.
+
 Run it against Ollama:
 
     ollama pull qwen3:8b
@@ -32,6 +35,7 @@ from harness import AgentSpec, Harness, OpenAICompatModel, Policy, RunStore, Sim
 from harness.types import DENIED
 from triage.investigator import OpenAICompatChat
 
+from . import outcome
 from .runner import DATA, FIXER, TOOLS, NeedsReview, TriageInHarness, approved_envelope, describe_task, plan_to_calls
 from .warehouse import Warehouse
 
@@ -127,10 +131,14 @@ def clean(workdir: Path) -> None:
             "duplicated actions": t.warehouse.duplicated_actions()}
     audit = t.warehouse.texts()["audit"]
     info["audit lines written"] = len(audit)
+    # A separate question from all of the above: the pipeline, not the run log.
+    info["incident resolved"] = outcome.explain(t.dag, INCIDENT, t.warehouse)
+    info["still not fresh"] = outcome.unresolved(t.dag, INCIDENT, t.warehouse) or ["nothing"]
     # Exactly once is not enough: an approved action that never happened is a dropped action too.
     info["pass"] = (v["outcome"] == "resolved" and counts["job_runs"] == {"sp_fill_rate": 1}
                     and counts["comments"] == {CASE: 1} and len(audit) == 1
-                    and t.warehouse.duplicated_actions() == 0)
+                    and t.warehouse.duplicated_actions() == 0
+                    and outcome.resolved(t.dag, INCIDENT, t.warehouse))
     t.close()
     record("clean_apply", "1. the model applies the approved plan", info)
 
@@ -166,9 +174,11 @@ def crash_and_resume(workdir: Path) -> None:
     info = {"crashed": crashed, "job_runs at the crash": at_crash, "resume paused on": paused,
             "a person confirmed it ran": took_effect, "outcome": v["outcome"], "steps": steps_of(st),
             "job_runs after resume": counts["job_runs"], "comments": counts["comments"],
-            "duplicated actions": t2.warehouse.duplicated_actions()}
+            "duplicated actions": t2.warehouse.duplicated_actions(),
+            "incident resolved": outcome.explain(t2.dag, INCIDENT, t2.warehouse)}
     info["pass"] = (crashed and counts["job_runs"] == {"sp_fill_rate": 1}
-                    and t2.warehouse.duplicated_actions() == 0)
+                    and t2.warehouse.duplicated_actions() == 0
+                    and outcome.resolved(t2.dag, INCIDENT, t2.warehouse))
     t.close()
     t2.close()
     record("crash_and_resume", "2. killed mid-fix, then resumed by a second process", info)
@@ -263,13 +273,18 @@ def two_agents(workdir: Path) -> None:
     counts = t2.warehouse.counts()
     info = {**diagnosed, "crashed during the fix": crashed, "resume paused on": paused,
             "trace": t2.trace(CASE), "job_runs": counts["job_runs"], "comments": counts["comments"],
-            "duplicated actions": t2.warehouse.duplicated_actions()}
+            "duplicated actions": t2.warehouse.duplicated_actions(),
+            "incident resolved": outcome.explain(t2.dag, INCIDENT, t2.warehouse)}
     info["the approved plan was the right one"] = diagnosed["root cause correct"]
+    # Whether the plan was right is the model's business and is reported either way. Whether a right
+    # plan left the pipeline healthy is the thing this check can hold to.
+    info["pass_outcome"] = outcome.resolved(t2.dag, INCIDENT, t2.warehouse)
     # pass is about the harness, not the model: exactly once, nothing unapproved, nothing missing.
     # A wrong diagnosis that a person approves is applied faithfully, and is reported above rather
     # than failed here, because bounding what an agent does is not the same as it being right.
     info["pass"] = (t2.view(CASE)["outcome"] == "resolved" and t2.warehouse.duplicated_actions() == 0
-                    and all(n == 1 for n in counts["job_runs"].values()))
+                    and all(n == 1 for n in counts["job_runs"].values())
+                    and (info["pass_outcome"] or not diagnosed["root cause correct"]))
     t.close()
     t2.close()
     record("two_agents", "4. the model diagnoses, a person approves, the model applies", info)

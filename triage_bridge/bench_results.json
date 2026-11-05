@@ -6,7 +6,8 @@
   "restart": {
     "runs_with_duplicate": "61/75",
     "duplicate_actions": 95,
-    "runs_exactly_once": "14/75"
+    "runs_exactly_once": "14/75",
+    "symptom_resolved": "75/75"
   },
   "resume": {
     "runs_with_duplicate": "0/75",
@@ -16,6 +17,8 @@
     "finished": "75/75",
     "runs_exactly_once": "75/75",
     "dropped_actions": 0,
+    "symptom_resolved": "75/75",
+    "still_broken": [],
     "paused_on": {
       "rerun_job": 12,
       "append_audit": 8,
@@ -32,6 +35,8 @@
       "finished": 75,
       "runs_exactly_once": 75,
       "dropped_actions": 0,
+      "symptom_resolved": 75,
+      "still_broken": [],
       "paused_on": {
         "rerun_job": 12,
         "append_audit": 8,
@@ -41,7 +46,8 @@
     "restart": {
       "runs_with_duplicate": 61,
       "duplicate_actions": 95,
-      "runs_exactly_once": 14
+      "runs_exactly_once": 14,
+      "symptom_resolved": 75
     }
   }
 }
