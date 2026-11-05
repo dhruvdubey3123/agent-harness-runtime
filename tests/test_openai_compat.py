@@ -151,3 +151,9 @@ def test_a_request_bigger_than_the_whole_budget_fails_at_once(monkeypatch):
     with pytest.raises(httpx.HTTPStatusError) as e:
         OpenAICompatModel().next_action([{"role": "user", "content": "x"}], [])
     assert "Requested 9400" in str(e.value)
+
+
+def test_the_request_timeout_is_configurable(monkeypatch):
+    """A local model thinking for minutes hit the 300s default with no way to raise it."""
+    monkeypatch.setenv("HARNESS_TIMEOUT", "900")
+    assert OpenAICompatModel().timeout == 900.0

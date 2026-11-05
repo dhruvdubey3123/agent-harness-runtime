@@ -146,11 +146,13 @@ class OpenAICompatModel:
     """
 
     def __init__(self, model: str | None = None, base_url: str | None = None, api_key: str | None = None,
-                 timeout: float = 300.0, temperature: float = 0.0):
+                 timeout: float | None = None, temperature: float = 0.0):
         self.model = model or os.environ.get("HARNESS_MODEL", "qwen3:8b")
         self.base_url = (base_url or os.environ.get("HARNESS_BASE_URL", "http://localhost:11434/v1")).rstrip("/")
         self.api_key = api_key or os.environ.get("HARNESS_API_KEY", "not-needed-for-local")
-        self.timeout = timeout
+        # Per request. A small local model thinking at length on a laptop can take minutes, so it is
+        # configurable; when it is exceeded the step treats the model as unavailable and the run pauses.
+        self.timeout = timeout or float(os.environ.get("HARNESS_TIMEOUT", "300"))
         self.temperature = temperature
         self.retries = int(os.environ.get("HARNESS_RETRIES", "6"))
         self.max_wait = float(os.environ.get("HARNESS_MAX_WAIT", "180"))
