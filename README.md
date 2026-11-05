@@ -138,6 +138,10 @@ python -m triage_bridge.demo
 python -m triage_bridge.bench --seed 1
 ```
 
+The `[triage]` extra installs [pipeline-triage-graph](https://github.com/dhruvdubey3123/pipeline-triage-graph) from git, and
+pip will not re-fetch it when that project moves. Working on both at once, install your clone over it so a pull there takes
+effect here: `pip install -e ../pipeline-triage-graph`.
+
 ## A model applies the fix, and cannot leave the approval
 
 Replaying an approved plan is safe and decides nothing. The moment a real model applies the fix instead, it starts choosing: the
