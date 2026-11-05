@@ -140,3 +140,14 @@ def test_the_retry_after_header_wins_when_it_is_there(monkeypatch):
     monkeypatch.setattr(httpx, "post", lambda *a, **k: calls.pop(0))
     assert OpenAICompatModel().next_action([{"role": "user", "content": "x"}], []) == Finish("through")
     assert slept == [12.0]
+
+
+def test_a_request_bigger_than_the_whole_budget_fails_at_once(monkeypatch):
+    """Waiting cannot make one request fit inside a per-minute limit smaller than the request."""
+    import harness.model as hm
+    monkeypatch.setattr(hm.time, "sleep", lambda s: pytest.fail("waiting would never help"))
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: rate_limited(
+        text='{"error":{"message":"Rate limit reached ... (TPM): Limit 8000, Used 1200, Requested 9400."}}'))
+    with pytest.raises(httpx.HTTPStatusError) as e:
+        OpenAICompatModel().next_action([{"role": "user", "content": "x"}], [])
+    assert "Requested 9400" in str(e.value)
