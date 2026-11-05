@@ -7,6 +7,8 @@ from harness import Finish, OpenAICompatModel, ToolCall
 
 
 class FakeResponse:
+    status_code, headers = 200, {}
+
     def __init__(self, payload):
         self.payload = payload
 
@@ -51,3 +53,17 @@ def test_unparseable_arguments_reach_the_sandbox_as_an_error(monkeypatch):
         {"function": {"name": "write_file", "arguments": "{path: oops"}}]}}]}))
     action = OpenAICompatModel().next_action([{"role": "user", "content": "x"}], [])
     assert action.tool == "write_file" and "_unparsed" in action.args
+
+
+def test_a_rate_limited_free_tier_is_waited_out(monkeypatch):
+    import harness.model as hm
+    replies = [429, 200]
+
+    class R(FakeResponse):
+        def __init__(self, code):
+            super().__init__({"choices": [{"message": {"content": "done"}}]})
+            self.status_code, self.headers = code, {"retry-after": "0"}
+
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: R(replies.pop(0)))
+    monkeypatch.setattr(hm.time, "sleep", lambda s: None)
+    assert OpenAICompatModel().next_action([{"role": "user", "content": "x"}], []) == Finish("done")

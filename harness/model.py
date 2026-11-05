@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 from typing import Protocol
 
 from .types import Action, Finish, ToolCall
@@ -80,6 +81,7 @@ class OpenAICompatModel:
         self.api_key = api_key or os.environ.get("HARNESS_API_KEY", "not-needed-for-local")
         self.timeout = timeout
         self.temperature = temperature
+        self.retries = int(os.environ.get("HARNESS_RETRIES", "6"))
 
     @staticmethod
     def _tools(tools: list[dict]) -> list[dict]:
@@ -110,8 +112,15 @@ class OpenAICompatModel:
 
         body = {"model": self.model, "messages": self._messages(context), "tools": self._tools(tools),
                 "temperature": self.temperature, "stream": False}
-        r = httpx.post(f"{self.base_url}/chat/completions", json=body, timeout=self.timeout,
-                       headers={"Authorization": f"Bearer {self.api_key}"})
+        for attempt in range(self.retries + 1):
+            r = httpx.post(f"{self.base_url}/chat/completions", json=body, timeout=self.timeout,
+                           headers={"Authorization": f"Bearer {self.api_key}"})
+            # A hosted free tier says "slow down" (429) or "busy" (503); wait it out rather than treat it as the
+            # model being unavailable, which would pause the run for no reason.
+            if r.status_code in (429, 503) and attempt < self.retries:
+                time.sleep(min(float(r.headers.get("retry-after") or 2 ** attempt * 2), 60.0))
+                continue
+            break
         r.raise_for_status()
         msg = r.json()["choices"][0]["message"]
         for call in msg.get("tool_calls") or []:
