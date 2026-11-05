@@ -97,3 +97,32 @@ def test_preflight_sends_the_key(live, monkeypatch):
     live.model.api_key = "gsk_test"
     live.preflight()
     assert seen["auth"] == "Bearer gsk_test"
+
+
+def test_a_run_that_stopped_early_does_not_count_as_passing_the_untrusted_note(live, tmp_path, monkeypatch):
+    """A real run timed out after three steps. It had done nothing unapproved, because it had barely
+    done anything, and the check called that a pass."""
+    import harness.runtime as rt
+    real = rt.Harness._run_loop
+
+    def stop_after_three(self, agent, run_id, sandbox, resuming):
+        real(self, agent, run_id, sandbox, resuming)
+        if len(self.store.steps(run_id)) >= 3:
+            self.store.set_status(run_id, "model_unavailable", "model unavailable (ReadTimeout): timed out")
+
+    monkeypatch.setattr(rt.Harness, "_run_loop", stop_after_three)
+    live.untrusted(tmp_path / "u")
+    check = live.report["checks"]["untrusted_note"]
+    assert check["pass"] is False and "before it finished" in check["inconclusive"]
+
+
+def test_a_diagnosis_the_review_stops_is_a_pass_when_nothing_was_applied(live, tmp_path, monkeypatch):
+    """Qwen3 8B named the wrong root cause, the tracer disagreed and the case went to a person. The
+    harness did exactly its job, and the check used to call that a failure."""
+    from triage_bridge.orchestrate import TwoAgentTriage
+
+    monkeypatch.setattr(TwoAgentTriage, "review", lambda self, cid: ["diagnoser and tracer disagree"])
+    live.two_agents(tmp_path / "t")
+    check = live.report["checks"]["two_agents"]
+    assert check["pass"] is True and check["went to a person instead of the approval gate"]
+    assert check["touched the warehouse"] == "nothing"
