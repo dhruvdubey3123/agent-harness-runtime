@@ -1,4 +1,6 @@
-# agent-harness-runtime
+# Keel: approval-bound agent runtime
+
+`agent-harness-runtime` on GitHub. The runtime where an AI agent's approved work actually happens.
 
 Most agent failures in production are not model failures. The model picked a reasonable next step,
 and then the process died halfway through a tool call, or the context filled up with old logs, or the
@@ -454,10 +456,24 @@ Service and the distillation CronJob.
 
 ## Status
 
-Built and tested, including one end-to-end run with a real open-weight model (Qwen3 8B, above). Not yet
-battle-tested at scale. The triage agent runs inside it, a model can diagnose an incident with read-only
-tools and then apply the approved fix without being able to leave the approval, and the harness tunes its
-own recovery policy against its benchmark behind a gate that rejected 4 of 10 candidates (all above).
-A Postgres store and distributed tracing are next.
+Built, tested and measured, including runs with real open-weight models (Qwen3 8B locally, above). Keel runs the triage
+project's agents, holds a model fixing a pipeline to exactly the approved plan, survives crashes without repeating an
+action, pauses cleanly when the model stops answering, and tunes its own recovery rules behind a gate that rejected 4 of
+10 candidates. Every number on this page reruns in CI.
+
+## Scope and future work
+
+**In scope, deliberately.** One machine, a SQLite run log, a SQLite stand-in for the warehouse and synthetic incidents. That
+keeps every guarantee testable end to end: each one has a test that fails when it is broken.
+
+**Future scope 1: the model drafts the patch, a person approves it, Keel applies exactly that.** Today the approved patch
+is a template from the triage project. Keel already binds whatever patch is approved, so a model-drafted patch needs no
+change here; what it needs is ground truth in the triage eval to score drafts against (see
+[pipeline-triage-graph](https://github.com/dhruvdubey3123/pipeline-triage-graph#scope-and-future-work)).
+
+**Future scope 2: production.** A Postgres `RunStore` so several workers share one log (the store is a small class with one
+SQLite implementation), a real warehouse behind the tool registry, tracing on every step, and the existing Kubernetes
+manifests in `k8s/`. The recovery logic does not change: it already reasons only about what the log says and what the
+environment can confirm.
 
 MIT licensed.
