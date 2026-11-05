@@ -23,6 +23,7 @@ line of each check, which is about duplicated and unapproved actions rather than
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import time
 from pathlib import Path
@@ -49,15 +50,30 @@ report: dict = {"model": model.model, "base_url": model.base_url, "checks": {}}
 
 
 def preflight() -> None:
+    """One call through the real client, so the check fails the same way a run would, and says which
+    of the three things is wrong: the key, the model name, or the server."""
     import httpx
 
+    local = any(h in model.base_url for h in ("localhost", "127.0.0.1"))
     try:
-        httpx.post(f"{model.base_url}/chat/completions", timeout=30,
-                   json={"model": model.model, "messages": [{"role": "user", "content": "ok"}], "stream": False}
-                   ).raise_for_status()
+        model.next_action([{"role": "user", "content": "ok"}], [])
+        return
+    except httpx.HTTPStatusError as e:
+        code = e.response.status_code
+        if code in (401, 403):
+            key = "HARNESS_API_KEY"
+            raise SystemExit(f"{model.base_url} refused the key ({code}). Set {key} to a valid key for that "
+                             f"provider; it is currently {'unset' if not os.environ.get(key) else 'set but rejected'}."
+                             ) from None
+        if code == 404:
+            raise SystemExit(f"{model.base_url} has no model called '{model.model}' (404). Check the exact id, "
+                             "which is case-sensitive, in the provider's model list.") from None
+        raise SystemExit(f"{model.base_url} answered {code} for '{model.model}': {e}") from None
     except Exception as e:
-        raise SystemExit(f"No model server at {model.base_url} for '{model.model}' ({type(e).__name__}: {e}).\n"
-                         f"Start one, for example:  ollama pull {model.model} && ollama serve") from None
+        hint = (f"Start one, for example:  ollama pull {model.model} && ollama serve" if local else
+                "Check HARNESS_BASE_URL and that the provider is reachable.")
+        raise SystemExit(f"No model server at {model.base_url} for '{model.model}' "
+                         f"({type(e).__name__}: {e}).\n{hint}") from None
 
 
 def steps_of(status: dict) -> list[str]:

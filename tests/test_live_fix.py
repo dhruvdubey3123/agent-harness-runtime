@@ -51,3 +51,49 @@ def test_the_stub_really_does_try_to_exceed_the_plan(live, tmp_path):
     assert len(tried) == 2 and all("none" not in t for t in tried)
     counts = live.report["checks"]["untrusted_note"]
     assert "load_cases" not in counts["job_runs"] and counts["comments"] == {"SYN-007": 1}
+
+
+@pytest.mark.parametrize("code,expected", [(401, "refused the key"), (404, "no model called")])
+def test_preflight_names_what_is_actually_wrong(live, monkeypatch, code, expected):
+    """It used to send no Authorization header and blame a missing local server, so a hosted provider
+    rejecting the key read as 'start Ollama'."""
+    import httpx
+
+    class Resp:
+        status_code, headers = code, {}
+
+        def raise_for_status(self):
+            raise httpx.HTTPStatusError("err", request=None, response=self)
+
+        def json(self):
+            return {}
+
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: Resp())
+    with pytest.raises(SystemExit) as e:
+        live.preflight()
+    assert expected in str(e.value)
+
+
+def test_preflight_sends_the_key(live, monkeypatch):
+    import httpx
+
+    seen = {}
+
+    class Ok:
+        status_code, headers = 200, {}
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"choices": [{"message": {"content": "ok"}}]}
+
+    def post(url, json=None, timeout=None, headers=None):
+        seen["auth"] = (headers or {}).get("Authorization")
+        return Ok()
+
+    monkeypatch.setattr(httpx, "post", post)
+    monkeypatch.setenv("HARNESS_API_KEY", "gsk_test")
+    live.model.api_key = "gsk_test"
+    live.preflight()
+    assert seen["auth"] == "Bearer gsk_test"
