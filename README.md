@@ -182,6 +182,11 @@ rather than by a framework:
 diagnose (model, read-only tools)  ->  review  ->  a person approves  ->  apply (model, inside the approved envelope)
 ```
 
+The diagnoser is the triage project's own LLM investigator: its prompt, its tools and the checks on what it submits live in
+[pipeline-triage-graph](https://github.com/dhruvdubey3123/pipeline-triage-graph#an-llm-agent-that-walks-the-graph-itself), which
+decides what a good diagnosis is. This repo decides how it runs: inside the sandbox, in the crash-safe log, resumable by a new
+process. Triage thinks, the harness makes acting safe.
+
 The two agents are deliberately unequal.
 
 * **The diagnoser has judgment and no power.** Its sandbox holds five read-only tools: the pipeline and its edges, the reported
