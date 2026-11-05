@@ -488,6 +488,24 @@ project's agents, holds a model fixing a pipeline to exactly the approved plan, 
 action, pauses cleanly when the model stops answering, and tunes its own recovery rules behind a gate that rejected 4 of
 10 candidates. Every number on this page reruns in CI.
 
+## Running it on a hosted model
+
+The model client speaks the OpenAI chat-completions API, so a hosted provider is two environment variables
+(`HARNESS_BASE_URL`, `HARNESS_API_KEY`, `HARNESS_MODEL`) and no code change. Worth knowing before you try:
+
+* **An agent step is a big request.** Each call carries the task, the tool schemas and the run so far, a few
+  thousand tokens, and a fix is a dozen calls. A free tier metered at 8K tokens per minute runs the triage
+  eval (one diagnosis at a time) but cannot sustain `triage_bridge.live_fix`, which was rate limited on every
+  call against two different models on Groq's free tier. A local model or a paid tier is the way to run it.
+* **Rate limits are not the model failing.** 429 and 503 are waited out, honouring the provider's own
+  Retry-After up to `HARNESS_MAX_WAIT`, and a request too big to ever fit the per-minute budget fails at once
+  with the provider's message rather than sleeping through the retries.
+* **A provider can fail to parse its own model's tool call.** Groq answers 400 "the model generated output
+  that could not be parsed" when `gpt-oss-120b` emits a malformed tool call. Nothing ran, so the step is
+  simply asked again.
+* **A model that stops answering pauses the run**, with everything so far in the log, and the run resumes
+  from there without repeating an action.
+
 ## Scope and future work
 
 **In scope, deliberately.** One machine, a SQLite run log, a SQLite stand-in for the warehouse and synthetic incidents. That
