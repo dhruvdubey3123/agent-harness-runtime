@@ -32,6 +32,18 @@ class ScriptedModel:
         return self.script[n] if n < len(self.script) else Finish("script complete")
 
 
+def _raise_with_body(r) -> None:
+    """Raise with what the provider actually said. A hosted API answering 400 names the part of the
+    request it rejected, and a bare status line turns that into guesswork."""
+    import httpx
+
+    try:
+        r.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        body = (getattr(r, "text", "") or "")[:600]
+        raise httpx.HTTPStatusError(f"{e}\n{body}" if body else str(e), request=e.request, response=e.response) from None
+
+
 class AnthropicModel:
     """Claude via the Messages API with tool use. Requires `pip install anthropic` and ANTHROPIC_API_KEY."""
 
@@ -121,7 +133,7 @@ class OpenAICompatModel:
                 time.sleep(min(float(r.headers.get("retry-after") or 2 ** attempt * 2), 60.0))
                 continue
             break
-        r.raise_for_status()
+        _raise_with_body(r)
         msg = r.json()["choices"][0]["message"]
         for call in msg.get("tool_calls") or []:
             fn = call["function"]
