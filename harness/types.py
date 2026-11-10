@@ -43,4 +43,11 @@ class ToolDenied(Exception):
 
 
 class RetryableToolError(Exception):
-    """A transient failure (timeout, rate limit, flaky network). Retried with backoff."""
+    """A transient failure the tool reports itself (rate limit, flaky network), or a timeout on a tool
+    that is safe to repeat. Retried with backoff."""
+
+
+class EffectUnknown(Exception):
+    """A call that is not safe to repeat ran out of time. Its thread is still running and may yet take
+    effect, so it is neither retried nor reported as having done nothing: the run stops for a person,
+    exactly as it does when a crash leaves such a step in flight."""

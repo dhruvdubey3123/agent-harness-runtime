@@ -19,7 +19,8 @@ from .sandbox import Policy, Sandbox
 from .skills import load_skills_index
 from .store import RunStore
 from .tools import ToolRegistry
-from .types import DENIED, FINISH_STEP, GAVE_UP, MAX_FINISH_REJECTIONS, Finish, RetryableToolError, ToolCall, ToolDenied
+from .types import (DENIED, FINISH_STEP, GAVE_UP, MAX_FINISH_REJECTIONS, EffectUnknown, Finish, RetryableToolError,
+                    ToolCall, ToolDenied)
 
 FaultHook = Callable[[str, int, ToolCall], None]
 
@@ -126,8 +127,9 @@ class Harness:
                 m.auto_verified += 1
                 self.store.resolve_review(run_id, last["idx"], True, "verified from the environment, not by a person")
                 sandbox.account({**last, "status": "done", "error": None})   # settled, so the plan is spent
-            else:
-                self._execute(agent, sandbox, run_id, last["idx"], ToolCall(last["tool"], last["args"]), m)
+            elif not self._execute(agent, sandbox, run_id, last["idx"], ToolCall(last["tool"], last["args"]), m):
+                m.wall_ms += (time.perf_counter() - t0) * 1000
+                return
             steps = self.store.steps(run_id)
 
         ended = self._ended_by(agent, steps)
@@ -169,7 +171,8 @@ class Harness:
                 else:
                     self.store.set_status(run_id, "done", action.answer)
                 break
-            self._execute(agent, sandbox, run_id, idx, action, m)
+            if not self._execute(agent, sandbox, run_id, idx, action, m):
+                break   # stopped for a person: the status is already written
             steps = self.store.steps(run_id)
             ended = self._ended_by(agent, steps)
             if ended is not None:
@@ -181,7 +184,8 @@ class Harness:
         m.steps = len(self.store.steps(run_id))
         m.wall_ms += (time.perf_counter() - t0) * 1000
 
-    def _execute(self, agent: AgentSpec, sandbox: Sandbox, run_id: str, idx: int, call: ToolCall, m: RunMetrics) -> None:
+    def _execute(self, agent: AgentSpec, sandbox: Sandbox, run_id: str, idx: int, call: ToolCall, m: RunMetrics) -> bool:
+        """Run one step and log it. False means the run stopped for a person and must not go on."""
         call = sandbox.bind(call)   # the log records the approved values, so resume and verification see them
         tool = self.registry.get(call.tool)
         self.store.begin_step(run_id, idx, call.tool, call.args, tool.idempotent if tool else True)
@@ -197,7 +201,7 @@ class Harness:
             except ToolDenied as e:
                 m.denials += 1
                 self.store.finish_step(run_id, idx, error=f"{DENIED}{e}")
-                return
+                return True
             except RetryableToolError as e:
                 if attempt < agent.max_retries:
                     m.retries += 1
@@ -205,12 +209,21 @@ class Harness:
                     continue
                 m.tool_errors += 1
                 self.store.finish_step(run_id, idx, error=f"{GAVE_UP}{attempt + 1} attempts: {e}")
-                return
+                return True
+            except EffectUnknown as e:
+                # Left as 'dispatched', which is the truth: it was sent and nobody knows if it landed.
+                # Resume treats it like a step a crash interrupted, so the recovery policy applies.
+                m.tool_errors += 1
+                self.store.set_status(run_id, "needs_review",
+                                      f"step {idx} ({call.tool}): {e}; check whether it took effect, then mark it "
+                                      "done or retry it")
+                return False
             except Exception as e:  # tool bug: report to the model instead of killing the run
                 m.tool_errors += 1
                 self.store.finish_step(run_id, idx, error=f"{type(e).__name__}: {e}")
-                return
+                return True
             # The dangerous window: the tool has run, but the log does not know yet.
             self._hook("after_tool", idx, call)
             self.store.finish_step(run_id, idx, result=result)
-            return
+            return True
+        return True

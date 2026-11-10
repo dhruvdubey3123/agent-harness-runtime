@@ -13,7 +13,7 @@ from pydantic import ValidationError
 
 from .envelope import Envelope
 from .tools import ToolRegistry
-from .types import DENIED, GAVE_UP, RetryableToolError, ToolCall, ToolDenied
+from .types import DENIED, GAVE_UP, EffectUnknown, RetryableToolError, ToolCall, ToolDenied
 
 
 @dataclass
@@ -118,9 +118,16 @@ class Sandbox:
         try:
             result = fut.result(timeout=self.policy.timeout_s)
         except cf.TimeoutError:
-            # Retryable by contract: the tool is reporting that it did not get to act, so the
-            # approved action is not spent and the retry is allowed to use it.
-            raise RetryableToolError(f"'{call.tool}' timed out after {self.policy.timeout_s}s") from None
+            # A timeout stops the waiting, not the tool: its thread keeps running and may still take
+            # effect. Repeating a tool that is safe to repeat costs nothing, so that is retried and
+            # the approved action is not spent. Repeating one that is not would do the thing twice,
+            # so its effect is recorded as unknown and assumed to have happened.
+            if tool.idempotent:
+                raise RetryableToolError(f"'{call.tool}' timed out after {self.policy.timeout_s}s") from None
+            if index is not None:
+                self._charge(index)
+            raise EffectUnknown(f"'{call.tool}' timed out after {self.policy.timeout_s}s and is not safe "
+                                "to repeat") from None
         except PermissionError as e:
             raise ToolDenied(str(e)) from None
         except BaseException:

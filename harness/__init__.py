@@ -8,10 +8,10 @@ from .sandbox import Policy, Sandbox
 from .skills import distill, load_skills_index
 from .store import RunStore
 from .tools import Tool, ToolRegistry, workspace_tools
-from .types import Finish, SimulatedCrash, ToolCall, ToolDenied
+from .types import EffectUnknown, Finish, SimulatedCrash, ToolCall, ToolDenied
 
 __all__ = ["STRATEGIES", "AgentSpec", "AnthropicModel", "ApprovedAction", "OpenAICompatModel", "ContextBudget",
-           "Envelope", "Finish", "Harness", "Policy", "RecoveryPolicy", "RunMetrics", "RunStore", "Sandbox",
+           "EffectUnknown", "Envelope", "Finish", "Harness", "Policy", "RecoveryPolicy", "RunMetrics", "RunStore", "Sandbox",
            "ScriptedModel", "SimulatedCrash", "Tool", "ToolCall", "ToolDenied", "ToolRegistry", "distill",
            "load_skills_index", "workspace_tools"]
 __version__ = "0.1.0"

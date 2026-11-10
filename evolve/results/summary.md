@@ -1,4 +1,4 @@
-# Self-improvement run
+# Recovery policy search
 
 Proposer: `rules`. 10 configurations measured on the same 75 crashed fixes; 4 rejected by the gate.
 

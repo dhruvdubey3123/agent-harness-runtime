@@ -252,30 +252,20 @@ The two agents are deliberately unequal.
 
 ### Is the model any good at it?
 
-The 100 incidents carry labels, so this is measurable. Qwen3 8B, local through Ollama on an RTX 4060, against the deterministic
-tracer on the same incidents:
-
-| Labelled incidents | Qwen3 8B, incidents 1 to 20 | Qwen3 8B, incidents 21 to 40 (held out) | Qwen3 8B, all 40 | Tracer, all 40 |
-|---|---|---|---|---|
-| Root cause identified correctly | 13 / 20 | 15 / 20 | **28 / 40** | 40 / 40 |
-| Category identified correctly | 15 / 20 | 13 / 20 | **28 / 40** | 36 / 40 |
-| Submitted a diagnosis at all | 20 / 20 | 20 / 20 | 40 / 40 | n/a |
-| Mean tool calls | 5.0 | 4.3 | | n/a |
-| Wall clock | 1707 s | 1342 s | | 0.1 s |
+The 100 incidents carry labels, so this is measurable: `triage_bridge/diag_bench.py` scores the model's diagnosis against
+them, next to the deterministic tracer on the same incidents. The figures for a hosted 120B model are in
+[pipeline-triage-graph](https://github.com/dhruvdubey3123/pipeline-triage-graph#measured-held-out-incidents). The same
+benchmark runs end to end on a local open-weight model through Ollama with no paid API.
 
 The tracer is better, as it should be: it was written for this pipeline, and the model has to rediscover the structure on every
-incident. The 8B model finds the root cause about 70% of the time, which is the number that decides how it can be used: as a
-second opinion next to the tracer, behind a person, and never as the thing that acts. The diagnosis has no tool that changes
-anything for exactly this reason.
+incident. That decides how the model can be used: as a second opinion next to the tracer, behind a person, and never as the
+thing that acts. The diagnosis has no tool that changes anything for exactly this reason.
 
 The more useful result was *how* it failed, and one failure was the harness's fault. In the end-to-end run the model submitted the
 correct node (`sp_fill_rate`) three times, then changed its mind and submitted the wrong one (`load_cases`) three more, and the run
 kept the last. A model told to "submit once" will not reliably do so, so **"once" is now enforced by the harness**:
 `AgentSpec.finish_on` ends the run at the first valid call to a terminal tool. Invalid submissions still go back to the model as
 errors it can correct; only a valid one ends the run.
-
-That change was made after looking at the first 20, so incidents 21 to 40 were run afterwards as a held-out sample. The two samples
-are different incidents, so 13 then 15 is not evidence that the change helped; the combined 28 of 40 is the figure to quote.
 
 Nothing is applied during that benchmark, so a wrong answer costs a wrong row and nothing else.
 
@@ -368,7 +358,7 @@ skipping or repeating five real actions. The objective alone would have accepted
 
 Honest about what that 100% means: no plan in these 100 incidents runs the same action twice, so every
 interrupted step was uniquely identifiable and the warehouse could be asked about it. The counterexamples
-show the policy going straight back to pausing the moment a plan does repeat one. The verifier is a query
+show the policy going straight back to pausing the moment a plan does repeat one. The search was also scored on the same 75 fixes it searched over: there is no held-out set here, so this is a result about these incidents and the four counterexamples, not about plans it has not seen. The verifier is a query
 against the system of record, the same check an on-call engineer makes by hand, not an oracle.
 
 ```bash
@@ -454,7 +444,7 @@ when the process is killed in the middle. Nothing in between depends on which mo
 
 ```bash
 pip install -e ".[dev]"
-pytest -q                          # 46 tests, 112 with the [triage] extra
+pytest -q                          # 49 tests, 115 with the [triage] extra
 python examples/quickstart.py      # run, crash at step 2, resume from the log
 ```
 
@@ -494,7 +484,7 @@ reader = AgentSpec("reader", "Answer from files only.", Policy({"read_file", "li
 * The model is only shown tools in its policy. A reader agent cannot discover that `write_file` exists.
 * Arguments are validated against each tool's Pydantic schema before anything runs.
 * Paths containing `..`, `.git`, `.env` or `.ssh` are refused, and file tools are jailed to the workspace root as a second layer.
-* Each tool has a per-run call budget and a timeout. Timeouts count as retryable.
+* Each tool has a per-run call budget and a timeout. A timeout stops the waiting, not the tool, so only a tool that is safe to repeat is retried after one. A tool that is not stops the run for a person, the same way a crash mid-call does.
 * Denials are returned to the model as an error result, so it can change course, and are never retried.
 
 ### Least-privilege MCP
@@ -510,7 +500,7 @@ python -m harness.mcp_bridge --workspace ./ws --allow read_file,list_files
 
 Tools raise `RetryableToolError` for transient failures such as rate limits or flaky networks. The harness retries with
 exponential backoff up to `max_retries`, records the attempt count on the step, and then hands the final error to the
-model. Bugs and denials are not retried.
+model. Bugs and denials are not retried. Neither is a timeout on a tool that is not safe to repeat: the call may still land after the wait ends, so the step stays `dispatched` and the run ends `needs_review`.
 
 ## Context budget
 
@@ -574,7 +564,7 @@ What that still cannot tell you is whether the SQL in a patch was correct, becau
 code that runs. Closing that needs a real pipeline behind the `Executor` and `DataProbe` interfaces, where a fix is confirmed
 by the report refreshing rather than by a state machine agreeing it should have. That is the production scope below. The other
 half of the question, how often the plan is aimed at the right job at all, is measured in
-[pipeline-triage-graph](https://github.com/dhruvdubey3123/pipeline-triage-graph#measured-two-models-held-out-incidents).
+[pipeline-triage-graph](https://github.com/dhruvdubey3123/pipeline-triage-graph#measured-held-out-incidents).
 
 **Future scope 1: the model drafts the patch, a person approves it, Keel applies exactly that.** Today the approved patch
 is a template from the triage project. Keel already binds whatever patch is approved, so a model-drafted patch needs no

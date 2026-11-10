@@ -1,3 +1,4 @@
+import time
 from pathlib import Path
 
 import pytest
@@ -106,6 +107,65 @@ SCRIPT = [
     ToolCall("write_file", {"path": "summary.md", "content": "done"}),
     ToolCall("append_line", {"path": "audit.log", "line": "summary created"}),
 ]
+
+
+def _slow_tool(idempotent: bool, hits: list, seconds: float = 0.3) -> ToolRegistry:
+    class Line(BaseModel):
+        line: str
+
+    reg = ToolRegistry()
+
+    def record(line: str) -> str:
+        time.sleep(seconds)
+        hits.append(line)
+        return "recorded"
+
+    reg.register(Tool("record", "slow", Line, record, idempotent=idempotent, side_effects=True))
+    return reg
+
+
+def test_a_timeout_on_a_tool_that_is_not_safe_to_repeat_stops_for_review_instead_of_retrying():
+    """A timeout stops the waiting, not the tool. Retrying used to run it three times, and the log
+    then said it gave up, which the approved plan reads as nothing having happened."""
+    hits: list = []
+    script = [ToolCall("record", {"line": "x"}), ToolCall("record", {"line": "y"})]
+    h = Harness(_slow_tool(False, hits), ScriptedModel(script), sleep=lambda s: None)
+    rid = h.start(agent(Policy({"record"}, timeout_s=0.05), max_retries=2), "record two lines")
+    time.sleep(0.6)   # let the call that timed out finish, as a real one would
+    steps = h.store.steps(rid)
+    assert hits == ["x"], "the side effect happened once, and the second call never started"
+    assert h.store.get_run(rid)["status"] == "needs_review"
+    assert len(steps) == 1 and steps[0]["status"] == "dispatched" and steps[0]["attempts"] == 1
+
+    # a person looked, saw it had landed, and the run carries on from the next step
+    h.store.resolve_review(rid, 0, took_effect=True)
+    h2 = Harness(_slow_tool(False, hits, seconds=0), ScriptedModel(script), h.store)
+    h2.resume(agent(Policy({"record"})), rid)
+    assert hits == ["x", "y"] and h.store.get_run(rid)["status"] == "done"
+
+
+def test_a_timeout_on_a_tool_that_is_safe_to_repeat_is_still_retried():
+    hits: list = []
+    h = Harness(_slow_tool(True, hits), ScriptedModel([ToolCall("record", {"line": "x"})]), sleep=lambda s: None)
+    rid = h.start(agent(Policy({"record"}, timeout_s=0.05), max_retries=2), "record a line")
+    step = h.store.steps(rid)[0]
+    assert step["attempts"] == 3 and "gave up after 3" in step["error"]
+    assert h.store.get_run(rid)["status"] != "needs_review"
+
+
+def test_a_timed_out_action_is_charged_to_the_approved_plan():
+    """Unknown effect is read as happened, so the model cannot be handed the same approved action again."""
+    from harness import Envelope
+    from harness.sandbox import Sandbox
+    from harness.types import EffectUnknown
+
+    hits: list = []
+    call = ToolCall("record", {"line": "x"})
+    envelope = Envelope.from_calls([call], {"record": ("line",)})
+    with Sandbox(_slow_tool(False, hits), Policy({"record"}, timeout_s=0.05, envelope=envelope)) as sandbox:
+        with pytest.raises(EffectUnknown):
+            sandbox.execute(call)
+        assert sandbox.unspent() == []
 
 
 def test_resume_replays_completed_steps_without_re_executing(tmp_path):

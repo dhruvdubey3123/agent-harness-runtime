@@ -96,7 +96,7 @@ def write(ledger: Ledger, out: Path = RESULTS) -> Path:
 
 def summary(ledger: Ledger) -> str:
     b, best = ledger.baseline, ledger.best
-    rows = ["# Self-improvement run", "",
+    rows = ["# Recovery policy search", "",
             f"Proposer: `{ledger.proposer}`. {len(ledger.history)} configurations measured on the same "
             f"{best.reached_gate} crashed fixes; {len(ledger.rejected)} rejected by the gate.", "",
             "| configuration | unattended | duplicated | dropped | verdict |", "|---|---|---|---|---|"]
