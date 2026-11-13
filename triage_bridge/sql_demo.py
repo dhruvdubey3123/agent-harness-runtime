@@ -61,19 +61,32 @@ def rehearse(wh: SqlWarehouse, p: Proposal) -> str:
     return "NOT verified: " + ("the report came back but other tables did not" if out["functional"] else "the report is still wrong")
 
 
-def draft_run(wh: SqlWarehouse, incident: dict, how: str) -> dict:
+def draft_run(wh: SqlWarehouse, incident: dict, how: str, history: bool = False, open_world: bool = False) -> dict:
     """Draft a fix and say how it went: the proposal (or None), each tool call, and the counts. The
-    terminal demo prints this and the chat shows it; neither decides anything the other does not."""
-    if how == "reference":
-        node = next(n for n in BY_ID if wh.deployed(n) != BY_ID[n].sql)
-        p = Proposal(incident["id"], incident["symptom_node"], node, BY_ID[node].sql, "restored the reference definition")
-        return {"proposal": p, "steps": [], "tries": 0, "refusals": 0, "answer": ""}
+    terminal demo prints this and the chat shows it; neither decides anything the other does not.
+
+    `open_world` stops assuming a procedure is at fault: the drafter may instead end with `closed`,
+    naming a bad source table or saying nothing is wrong. `history` gives it the deploy history."""
+    base = {"proposal": None, "closed": None, "steps": [], "tries": 0, "refusals": 0, "answer": ""}
+    if how == "reference":          # no model: the answer is read off the warehouse, to exercise the flow
+        with wh.open() as raw:
+            changed, bad = raw.changed_procedures(), raw.corrupted_sources()
+        if changed:
+            return {**base, "proposal": Proposal(incident["id"], incident["symptom_node"], changed[0], BY_ID[changed[0]].sql,
+                                                 "restored the reference definition")}
+        if not open_world:
+            raise ValueError("no procedure differs from its reference definition")
+        if bad:
+            return {**base, "closed": {"kind": "source_data", "source_table": bad[0], "reason": f"raw.{bad[0]} is not as it was on the last good run"}}
+        return {**base, "closed": {"kind": "nothing_wrong", "source_table": "", "reason": "every check passes and no SQL changed"}}
     from triage.investigator import OpenAICompatChat
     from triage.warehouse import fix
     with wh.open() as raw:
-        inv, sql, session = fix.draft_checked(raw, as_dag(), incident, OpenAICompatChat(**_model_settings()))
+        inv, sql, session = fix.draft_checked(raw, as_dag(), incident, OpenAICompatChat(**_model_settings()),
+                                              **({"history": history, "open_world": open_world} if history or open_world else {}))
     p = None if sql is None else Proposal(incident["id"], incident["symptom_node"], inv.fix_target, sql, inv.reason)
-    return {"proposal": p, "steps": inv.steps, "tries": session.tries, "refusals": len(session.refusals), "answer": inv.answer}
+    return {"proposal": p, "closed": getattr(session, "closed", None), "steps": inv.steps, "tries": session.tries,
+            "refusals": len(session.refusals), "answer": inv.answer}
 
 
 def draft(wh: SqlWarehouse, incident: dict, how: str, break_id: str) -> Proposal | None:

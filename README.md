@@ -420,26 +420,40 @@ seven of twelve tables fail a health check). The model named the staging table, 
 That is two clean crash-and-resume runs by a model fixer, on two breaks, against one that looped before the fix. Still an
 illustration and not a rate.
 
-## The same flow as a chat beside a dashboard
+## The same flow as a chat beside a dashboard, with tickets arriving each night
 
 The terminal demo is how an engineer runs it. An analyst does not live in a terminal: they are looking at a report, and a
-number looks wrong. `triage_bridge/chat.py` puts the same flow where they are, a dashboard that reads the real report
-tables with a chat beside it.
+number looks wrong. `triage_bridge/chat.py` puts the same flow where they are: a dashboard that reads the real report
+tables, a queue of tickets, and a chat.
 
 ```
 python -m triage_bridge.chat                                    # a model drafts and applies
 python -m triage_bridge.chat --draft reference --fixer replay    # no model, no key
-python -m triage_bridge.chat --crash                             # kill the apply after the patch, then resume
+python -m triage_bridge.chat --crash                             # kill each apply after the patch, then resume
+python -m triage_bridge.chat --history                           # the agent may read what was deployed
+python -m triage_bridge.chat --break type_drift.price_as_integer # plant this one on the first night
 ```
 
-Open `http://127.0.0.1:8765` and say what looks wrong. The agent replies with what it did, then a card: the table it
-wants to change, why, the SQL change as a diff, what the rehearsal said, and the plan id, with Approve and Reject.
-Approve, and Keel applies that plan through its run log, the warehouse is checked, and the dashboard reloads with the
-changed figures marked next to what they were.
+Open `http://127.0.0.1:8765` and run the next night. The pipeline rebuilds, and on some nights something has gone
+wrong. It can be a colleague's change to one procedure, a source table that arrived bad, or nothing at all and an analyst
+who is mistaken (the cases are from `triage/warehouse/world.py` in the triage repo). A ticket appears. Nobody is told
+which kind it is, the agent included. A night can also be quiet.
+
+The agent takes one ticket and ends it one of three ways:
+
+- **A fix.** A card with the table, the reason, the SQL change as a diff, what the rehearsal said, and the plan id.
+  Approve, and Keel applies that plan through its run log.
+- **A bad source.** It names the table and changes no SQL. The source's owner reloads it, which is a button here.
+- **Nothing wrong.** It says so and changes nothing.
+
+Nothing is closed on the agent's word. After each ending the warehouse is compared with its reference. Only then is the
+ticket closed and shown what it really was, and a ticket whose ending left anything wrong stays open for a person. The
+queue keeps every ticket, with whether the agent closed it rightly or a person had to.
 
 Nothing about the guarantees changes with the front door. The server only accepts a decision for the plan that is on the
-table, the SQL is still bound by the approval, and a killed apply still resumes from the log. Eight tests run the whole
-conversation with no model (`tests/test_chat.py`), including the reject path, a wrong plan id, and the crash.
+table, the SQL is still bound by the approval, and a killed apply still resumes from the log. Twelve tests play nights
+with no model (`tests/test_chat.py`), including a rejected plan, a wrong plan id, the crash, and an agent that blames the
+wrong source and is caught by the check.
 
 **First session with a model** (GPT-OSS 120B via OpenRouter, 13 Nov 2026, `--crash`). The analyst typed "Revenue looks
 wrong". The model made seven tool calls, named `stg_lineitem`, and its fix verified on the first rehearsal. Plan
@@ -458,8 +472,10 @@ Kept, one change-log line, and the dashboard reloaded with the corrected figures
 applied" reply was seen doing its job on a live model: one refusal, then straight on to the rebuild. Before that reply
 existed, the same situation looped seven times (run three above). One session, not a rate.
 
-What it is not: a general assistant for the warehouse. It handles one thing, a complaint about a report through to a fix
-a person approves, one case at a time, on the frozen sample data. The model's tool calls appear when the investigation
+What it is not: a general assistant for the warehouse. It handles one thing, a complaint about a report through to its
+right ending, one ticket at a time. The data is a frozen sample, so a night brings a new fault and not new rows, and the
+faults are drawn from 38 known cases. The session recorded above was before the queue existed; no model has yet been run
+through nights with all three kinds of ticket. The model's tool calls appear when the investigation
 finishes, not as they happen. The key is read from the environment by the server and is never sent to the page.
 
 ## Tuning itself against its own benchmark

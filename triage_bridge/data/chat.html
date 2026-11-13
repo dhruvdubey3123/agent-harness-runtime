@@ -54,7 +54,28 @@ td.ch{background:var(--accent-soft);color:var(--accent)}
 .ch-top b{font-family:var(--display);font-size:15px;white-space:nowrap}
 .mode{font-family:var(--mono);font-size:11px;color:var(--muted);margin-right:auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .reset{font-family:var(--mono);font-size:11.5px;background:none;border:1px solid var(--line);border-radius:6px;padding:5px 9px;cursor:pointer;white-space:nowrap}
-.log{flex:1;overflow:auto;padding:16px 18px;display:flex;flex-direction:column;gap:12px}
+.queue{border-bottom:1px solid var(--line);background:var(--bg);max-height:38%;display:flex;flex-direction:column;min-height:0;overflow:hidden;flex:none}
+.q-top{display:flex;align-items:center;gap:10px;padding:10px 18px}
+.q-top .nt{font-family:var(--display);font-weight:700;font-size:15px;white-space:nowrap}
+.q-top .tl{font-size:12px;color:var(--muted);margin-right:auto}
+.nightbtn{font-family:var(--mono);font-size:12px;font-weight:600;padding:7px 11px;border-radius:6px;border:0;background:var(--ink);color:var(--bg);cursor:pointer;white-space:nowrap}
+.nightbtn:disabled{opacity:.4;cursor:default}
+.tix{overflow:auto;flex:1;min-height:0;padding:0 18px 10px;display:flex;flex-direction:column;gap:6px}
+.tix:empty::after{content:"No tickets yet. Run the first night.";font-size:12.5px;color:var(--muted)}
+.tk{border:1px solid var(--line);border-radius:8px;background:var(--surface);padding:8px 10px;font-size:12.5px;display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:center}
+.tk .id{font-family:var(--mono);font-weight:600}
+.tk .tx{grid-column:1;overflow-wrap:anywhere}
+.tk .meta{grid-column:1 / -1;color:var(--muted);font-size:11.5px}
+.tk .chip{grid-column:2;grid-row:1;font-family:var(--mono);font-size:10.5px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);white-space:nowrap;justify-self:end}
+.tk .act{grid-column:2;grid-row:2;justify-self:end;font-family:var(--mono);font-size:11.5px;font-weight:600;padding:6px 9px;border-radius:6px;border:1px solid var(--ink);background:none;cursor:pointer;white-space:nowrap}
+.tk .act:disabled{opacity:.4;cursor:default}
+.tk.open{border-color:var(--amber)} .tk.open .chip{background:var(--amber-soft);border-color:var(--amber)}
+.tk.person{border-color:var(--signal)} .tk.person .chip{background:var(--signal-soft);border-color:var(--signal);color:var(--signal)}
+.tk.closed .chip{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+.tk.closed.miss .chip{background:var(--signal-soft);border-color:var(--signal);color:var(--signal)}
+.sys{align-self:center;font-family:var(--mono);font-size:11.5px;color:var(--muted);text-align:center}
+.sys.bad{color:var(--signal)} .sys.good{color:var(--accent)}
+.log{flex:1;overflow:auto;padding:16px 18px;display:flex;flex-direction:column;gap:12px;min-height:0}
 .log>*{animation:in var(--dur-base) var(--ease-enter) both}
 @keyframes in{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
 .hello{color:var(--muted);font-size:13.5px}
@@ -102,9 +123,13 @@ td.ch{background:var(--accent-soft);color:var(--accent)}
     <div class="tw"><table id="tbl"></table></div>
   </main>
   <aside class="chat" aria-label="Chat with the pipeline agent">
-    <div class="ch-top"><b>Pipeline agent</b><span class="mode" id="mode"></span><button class="reset" id="reset" type="button" title="Rebuild the warehouse with the fault back in">Start over</button></div>
+    <div class="ch-top"><b>Pipeline agent</b><span class="mode" id="mode"></span><button class="reset" id="reset" type="button" title="Rebuild the warehouse and start again from the first night">Start over</button></div>
+    <div class="queue">
+      <div class="q-top"><span class="nt" id="night">Before the first night</span><span class="tl" id="tally"></span><button class="nightbtn" id="nightbtn" type="button">Run the next night</button></div>
+      <div class="tix" id="tix"></div>
+    </div>
     <div class="log" id="log" aria-live="polite">
-      <div class="hello">See a number that looks wrong? Tell me which one. I trace it back through the tables that feed this report and propose a fix. I change nothing until you approve it.</div>
+      <div class="hello">Each night the pipeline rebuilds, and some nights a ticket comes of it: a bad change to some SQL, a source table that arrived bad, or nothing at all. I am not told which. Give me a ticket and I trace it. I change nothing until you approve it.</div>
     </div>
     <div class="say">
       <div class="sugg" id="sugg"></div>
@@ -120,7 +145,20 @@ const api=(p,body)=>fetch(p,body?{method:"POST",headers:{"content-type":"applica
 const money=v=>v.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
 const fmt=(c,v)=>v==null?"none":typeof v!=="number"?String(v):/share|rate/.test(c)?(v*100).toFixed(2)+"%":Number.isInteger(v)?v.toLocaleString("en-US"):money(v);
 const LABEL={revenue:"Revenue",orders:"Orders",customers:"Customers",latest_day:"Latest day loaded"};
-let reports=[],current=null,data={},before={},seen=0,state="idle",steps=null,busy=null;
+let reports=[],current=null,data={},before={},seen=0,state="idle",steps=null,busy=null,tickets=[];
+const post=(path,body)=>api(path,body).then(poll).catch(e=>{$("#log").append(h("div","m agent",e.message));$("#log").scrollTop=1e9});
+function queue(tally){$("#night").textContent=tally.night?"Night "+tally.night:"Before the first night";
+  $("#tally").textContent=tally.closed?tally.closed+" closed, "+tally.by_agent+" rightly by the agent":"";
+  const open=tickets.some(t=>t.status!=="closed");$("#nightbtn").disabled=state!=="idle"||open;
+  $("#tix").replaceChildren(...tickets.slice().reverse().map(t=>{const closed=t.status==="closed",person=t.status==="needs a person";
+    const el=h("div","tk "+(closed?"closed"+(t.right?"":" miss"):person?"person":"open"));
+    const top=h("div");top.append(h("span","id",t.id+"  "),h("span",null,"night "+t.night+", raised by "+t.raised_by));el.append(top);
+    el.append(h("span","chip",closed?(t.right?"agent was right":"closed by a person"):t.status));
+    el.append(h("div","tx",t.text));
+    if(t.status==="open"){const b=h("button","act","Give to the agent");b.type="button";b.disabled=state!=="idle";b.onclick=()=>post("/api/work",{ticket:t.id});el.append(b)}
+    if(person){const b=h("button","act","A person takes it");b.type="button";b.disabled=state!=="idle";b.onclick=()=>post("/api/resolve",{ticket:t.id,action:"person"});el.append(b)}
+    if(t.outcome)el.append(h("div","meta",t.outcome+(closed?". It was "+t.was+".":"")));
+    return el}))}
 
 function figures(d){const out=[],col=c=>d.columns.indexOf(c);
   for(const c of ["revenue","orders","customers"])if(col(c)>=0)out.push([c,d.rows.reduce((a,r)=>a+(r[col(c)]||0),0)]);
@@ -142,14 +180,14 @@ function draw(){const d=data[current],b=before[current];if(!d)return;
   const body=d.rows.map(r=>{const row=h("tr"),p=prev&&prev[key(r)];
     r.forEach((v,i)=>{const td=h("td",isNum(i)?"":"s",fmt(d.columns[i],v));if(p&&p[i]!==v){td.classList.add("ch");td.title="was "+fmt(d.columns[i],p[i])}row.append(td)});return row});
   $("#tbl").replaceChildren(tr,...body);
-  $("#asof").textContent=d.rows.length+" rows"+(b?", cells changed by the fix are marked":"");
+  $("#asof").textContent=d.rows.length+" rows"+(b?", cells that changed since the last load are marked":"");
   document.querySelectorAll(".tab").forEach(t=>t.setAttribute("aria-selected",t.dataset.r===current));
   const sug=current.includes("regional")?["Margin rate looks wrong","Revenue by region looks off"]:["Revenue looks wrong","Trailing 7 day revenue is off"];
   $("#sugg").replaceChildren(...sug.map(s=>{const b=h("button",null,s);b.type="button";b.onclick=()=>send(s);return b}));lockInput()}
 async function load(keep){for(const r of reports){const d=await api("/api/report/"+r);
     if(keep&&data[r]&&JSON.stringify(data[r].rows)!==JSON.stringify(d.rows))before[r]=data[r];data[r]=d}draw()}
-function lockInput(){const off=state!=="idle";$("#text").disabled=$("#send").disabled=off;document.querySelectorAll("#sugg button").forEach(b=>b.disabled=off);
-  $("#text").placeholder=state==="awaiting"?"Approve or reject the plan above":off?"Working ...":"What looks wrong with this report?"}
+function lockInput(){const off=state!=="idle"||tickets.some(t=>t.status!=="closed");$("#text").disabled=$("#send").disabled=off;document.querySelectorAll("#sugg button").forEach(b=>b.disabled=off);
+  $("#text").placeholder=state==="awaiting"?"Approve or reject the plan above":state!=="idle"?"Working ...":off?"A ticket is open. Close it first.":"Or type what looks wrong with this report"}
 function add(e){const log=$("#log");if(busy){busy.remove();busy=null}
   if(e.kind!=="tool"&&e.kind!=="step")steps=null;
   if(e.kind==="user"||e.kind==="agent")log.append(h("div","m "+e.kind,e.text));
@@ -168,26 +206,37 @@ function add(e){const log=$("#log");if(busy){busy.remove();busy=null}
     const go=ok=>{y.disabled=n.disabled=true;api("/api/decide",{plan_id:e.plan_id,approve:ok}).then(poll).catch(err=>{log.append(h("div","m agent",err.message));y.disabled=n.disabled=false})};
     y.onclick=()=>go(true);n.onclick=()=>go(false);row.append(y,n);c.append(row);
     c.append(h("div","fine","Approval covers this SQL only. A different query is a different plan and is refused."));log.append(c)}
+  else if(e.kind==="night"||e.kind==="note")log.append(h("div","sys",e.text));
+  else if(e.kind==="verdict")log.append(h("div","sys "+(e.ok?"good":"bad"),e.text));
+  else if(e.kind==="closure"){const c=h("div","card"),src=e.ending==="source_data";
+    c.append(h("h3",null,src?"I am not changing any SQL. raw."+e.table+" arrived bad.":"I found nothing wrong. I am changing nothing."));
+    const why=h("div");why.append(h("div","k",e.drafted_by==="model"?"Why, in the model's words":"Why"),h("div",null,e.reason||"(no reason given)"));c.append(why);
+    c.append(h("div","fine",src?"A fix in SQL would hide this from whoever owns the source. It has to be reloaded there.":"If you still think the number is wrong, give the ticket to a person."));
+    const row=h("div","row"),y=h("button","btn yes",src?"Owner reloads raw."+e.table:"Close the ticket"),n=h("button","btn no","Give it to a person");y.type=n.type="button";
+    const go=a=>{y.disabled=n.disabled=true;post("/api/resolve",{ticket:e.ticket,action:a})};
+    y.onclick=()=>go(src?"reload":"accept");n.onclick=()=>go("person");row.append(y,n);c.append(row);log.append(c)}
   else if(e.kind==="result"){const c=h("div","card "+(e.kept?"good":"bad"));
     c.append(h("h3",null,e.kept?"Fixed, verified and kept.":"The fix did not verify, so I rolled it back."));
     c.append(h("div",null,"This report right: "+(e.functional?"yes":"no")+". Every other table right: "+(e.integrity?"yes":"no")+"."));
-    if(e.kept)c.append(h("div","fine","Change log lines for this case: "+e.changes+(e.log.length?". “"+e.log[0]+"”":"")),h("div","fine","The dashboard has reloaded. Changed figures are marked."));
+    if(e.kept)c.append(h("div","fine","Change log lines for this ticket: "+e.changes+(e.log.length?". “"+e.log[0]+"”":"")));
     log.append(c)}
   log.scrollTop=log.scrollHeight}
 let timer=null;
 async function poll(){clearTimeout(timer);const was=state;let r;try{r=await api("/api/events?since="+seen)}catch(e){timer=setTimeout(poll,1500);return}
-  state=r.state;r.events.forEach(add);seen+=r.events.length;
+  state=r.state;tickets=r.tickets;r.events.forEach(add);seen+=r.events.length;queue(r.tally);
   const working=state==="working"||state==="applying";
   if(working&&!busy){busy=h("div","busy");busy.append(h("i"),h("span",null,state==="working"?"Investigating. With a model this can take a minute.":"Applying ..."));$("#log").append(busy);$("#log").scrollTop=1e9}
   if(!working&&busy){busy.remove();busy=null}
-  if(r.events.some(e=>e.kind==="result")||(was==="applying"&&state==="idle"))await load(true);
-  document.querySelectorAll(".card .btn").forEach(b=>{if(state!=="awaiting")b.disabled=true});
+  if(r.events.some(e=>["night","result","verdict","step"].includes(e.kind)))await load(true);
+  const live=tickets.some(t=>t.status==="waiting for your approval"||t.status==="your call"),cards=[...document.querySelectorAll("#log .card")];
+  cards.forEach((c,i)=>{if(!live||i<cards.length-1)c.querySelectorAll(".btn").forEach(b=>b.disabled=true)});
   lockInput();if(working)timer=setTimeout(poll,700)}
 function send(t){t=(t||"").trim();if(!t||state!=="idle")return;$("#text").value="";
   api("/api/complain",{text:t,report:current}).then(poll).catch(e=>$("#log").append(h("div","m agent",e.message)))}
 $("#form").onsubmit=e=>{e.preventDefault();send($("#text").value)};
 $("#reset").onclick=()=>api("/api/reset",{}).then(()=>location.reload()).catch(e=>$("#log").append(h("div","m agent",e.message)));
-(async()=>{const m=await api("/api/meta");reports=m.reports;current=reports[0];$("#mode").textContent=m.mode+(m.crash?", crash test on":"");
+(async()=>{const m=await api("/api/meta");reports=m.reports;current=reports[0];$("#mode").textContent=m.mode+(m.crash?", crash test on":"")+(m.history?", deploy history on":"");
+  $("#nightbtn").onclick=()=>post("/api/night",{});
   $("#tabs").replaceChildren(...reports.map(r=>{const t=h("button","tab",r);t.type="button";t.dataset.r=r;t.setAttribute("role","tab");t.onclick=()=>{current=r;draw()};return t}));
   await load(false);poll()})();
 </script>
