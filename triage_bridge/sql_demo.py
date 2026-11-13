@@ -61,21 +61,31 @@ def rehearse(wh: SqlWarehouse, p: Proposal) -> str:
     return "NOT verified: " + ("the report came back but other tables did not" if out["functional"] else "the report is still wrong")
 
 
-def draft(wh: SqlWarehouse, incident: dict, how: str, break_id: str) -> Proposal | None:
+def draft_run(wh: SqlWarehouse, incident: dict, how: str) -> dict:
+    """Draft a fix and say how it went: the proposal (or None), each tool call, and the counts. The
+    terminal demo prints this and the chat shows it; neither decides anything the other does not."""
     if how == "reference":
         node = next(n for n in BY_ID if wh.deployed(n) != BY_ID[n].sql)
-        return Proposal(incident["id"], incident["symptom_node"], node, BY_ID[node].sql, "restored the reference definition")
+        p = Proposal(incident["id"], incident["symptom_node"], node, BY_ID[node].sql, "restored the reference definition")
+        return {"proposal": p, "steps": [], "tries": 0, "refusals": 0, "answer": ""}
     from triage.investigator import OpenAICompatChat
     from triage.warehouse import fix
     with wh.open() as raw:
         inv, sql, session = fix.draft_checked(raw, as_dag(), incident, OpenAICompatChat(**_model_settings()))
-    for s in inv.steps:
+    p = None if sql is None else Proposal(incident["id"], incident["symptom_node"], inv.fix_target, sql, inv.reason)
+    return {"proposal": p, "steps": inv.steps, "tries": session.tries, "refusals": len(session.refusals), "answer": inv.answer}
+
+
+def draft(wh: SqlWarehouse, incident: dict, how: str, break_id: str) -> Proposal | None:
+    d = draft_run(wh, incident, how)
+    if how == "reference":
+        return d["proposal"]
+    for s in d["steps"]:
         print(f"    {s['tool']}({', '.join(str(v)[:40] for v in s['args'].values())}) {'ok' if s['ok'] else 'REFUSED: ' + s['result'][:90]}")
-    print(f"    rehearsal tries: {session.tries}; refused by the harness: {len(session.refusals)}")
-    if sql is None:
-        print(f"\nThe drafter did not produce a verified fix ({inv.answer[:160] or 'no answer'}). This goes to a person.")
-        return None
-    return Proposal(incident["id"], incident["symptom_node"], inv.fix_target, sql, inv.reason)
+    print(f"    rehearsal tries: {d['tries']}; refused by the harness: {d['refusals']}")
+    if d["proposal"] is None:
+        print(f"\nThe drafter did not produce a verified fix ({d['answer'][:160] or 'no answer'}). This goes to a person.")
+    return d["proposal"]
 
 
 def main(argv: list[str] | None = None) -> dict:
