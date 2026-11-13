@@ -441,6 +441,23 @@ Nothing about the guarantees changes with the front door. The server only accept
 table, the SQL is still bound by the approval, and a killed apply still resumes from the log. Eight tests run the whole
 conversation with no model (`tests/test_chat.py`), including the reject path, a wrong plan id, and the crash.
 
+**First session with a model** (GPT-OSS 120B via OpenRouter, 13 Nov 2026, `--crash`). The analyst typed "Revenue looks
+wrong". The model made seven tool calls, named `stg_lineitem`, and its fix verified on the first rehearsal. Plan
+`ad37346ab188` was approved with the button. The log of the apply, as the chat showed it:
+
+```
+patch_procedure -> error   (the model sent SQL of its own; refused, the approved SQL is supplied for it)
+patch_procedure -> done
+Process killed right after the patch. Starting again from the run log ...
+patch_procedure -> error   (the model asked for the patch again; told it is already applied, and what is left)
+run_cycle -> done
+record_change -> done
+```
+
+Kept, one change-log line, and the dashboard reloaded with the corrected figures. This is the first time the "already
+applied" reply was seen doing its job on a live model: one refusal, then straight on to the rebuild. Before that reply
+existed, the same situation looped seven times (run three above). One session, not a rate.
+
 What it is not: a general assistant for the warehouse. It handles one thing, a complaint about a report through to a fix
 a person approves, one case at a time, on the frozen sample data. The model's tool calls appear when the investigation
 finishes, not as they happen. The key is read from the environment by the server and is never sent to the page.

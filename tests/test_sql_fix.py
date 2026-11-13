@@ -190,3 +190,13 @@ def test_an_apply_that_runs_out_of_steps_is_not_reported_as_done(wh):
         sql_fix.apply(wh, store, p, p.plan_id, model=stuck)
     assert e.value.status == "failed" and wh.counts()["changes"] == {}
     assert wh.deployed("stg_orders") == BY_ID["stg_orders"].sql, "nothing outside the approval ran"
+
+
+def test_a_refusal_is_shown_whole_with_the_sql_cut_not_the_sentence():
+    from triage_bridge.sql_fix import _short
+    long_sql = "select " + ", ".join(f"col_{i} as c{i}" for i in range(60)) + " from t"
+    msg = (f"denied: the approved plan allows patch_procedure(node='stg_lineitem', sql='{long_sql}') and that is "
+           "already applied; a person has to approve another one. Still to apply: run_cycle(); record_change(case_id='CASE-1')")
+    out = _short(msg)
+    assert "col_30" not in out and "sql=<the approved SQL>" in out
+    assert out.endswith("record_change(case_id='CASE-1')") and "already applied" in out
