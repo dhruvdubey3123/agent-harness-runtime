@@ -379,7 +379,27 @@ did not hold, and both were this project's faults:
   warehouse. An apply that does not finish now raises, and the demo says the plan is only partly carried out and hands it
   to a person.
 
-Both are tests now, written from this run. A clean crash and resume by a model fixer has still not been observed.
+Both are tests now, written from this run.
+
+**A fourth run, same break, same kill.** This one came through clean:
+
+```
+4. Applying plan 6c9cd78a65f7 through the harness (model) ...
+   Process killed right after the patch. Starting again from the run log ...
+   patch_procedure -> done
+   run_cycle -> done
+   record_change -> done
+5. Checking the warehouse ...
+   Report right: True. Everything else right: True.
+   Kept.
+   Change log lines for this case: 1; text: ["Corrected trailing_7d_revenue calculation to include the latest day by changing '>' to '>='."]
+```
+
+The patch is not asked for twice, the tables are rebuilt, and the change is recorded once, with a line that describes the
+change. What this does and does not show: it is one clean crash and resume by a model fixer, not a rate. And the model did
+not ask for the patch again in this run, so the new "already applied" reply is covered by its test and has not yet been
+seen steering a live model out of the loop. Run three and run four are the same code path up to the kill; the difference
+is the model.
 
 ## Tuning itself against its own benchmark
 
