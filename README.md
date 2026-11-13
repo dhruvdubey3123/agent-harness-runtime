@@ -466,8 +466,8 @@ wrong source and is caught by the check.
   then a fix that verified on its first rehearsal. Plan `cb67d748a439` approved, applied in three logged steps, kept.
 
 Two tickets, both ended rightly, three calls refused by the harness on the way. Neither a mistaken complaint nor a
-fault no check can see came up in these nights, and those are the kinds the model did worst on in the triage repo's
-sample.
+fault no check can see came up in these nights. The model here is shown ticket numbers (`T-1`) and never a case id, so
+these sessions are not affected by the id leak found in the triage repo's evaluation on the same day.
 
 **The earlier session, before the queue** (GPT-OSS 120B via OpenRouter, 13 Nov 2026, `--crash`). The analyst typed "Revenue looks
 wrong". The model made seven tool calls, named `stg_lineitem`, and its fix verified on the first rehearsal. Plan
