@@ -420,6 +420,48 @@ seven of twelve tables fail a health check). The model named the staging table, 
 That is two clean crash-and-resume runs by a model fixer, on two breaks, against one that looped before the fix. Still an
 illustration and not a rate.
 
+## The same flow as a chat beside a dashboard
+
+The terminal demo is how an engineer runs it. An analyst does not live in a terminal: they are looking at a report, and a
+number looks wrong. `triage_bridge/chat.py` puts the same flow where they are, a dashboard that reads the real report
+tables with a chat beside it.
+
+```
+python -m triage_bridge.chat                                    # a model drafts and applies
+python -m triage_bridge.chat --draft reference --fixer replay    # no model, no key
+python -m triage_bridge.chat --crash                             # kill the apply after the patch, then resume
+```
+
+Open `http://127.0.0.1:8765` and say what looks wrong. The agent replies with what it did, then a card: the table it
+wants to change, why, the SQL change as a diff, what the rehearsal said, and the plan id, with Approve and Reject.
+Approve, and Keel applies that plan through its run log, the warehouse is checked, and the dashboard reloads with the
+changed figures marked next to what they were.
+
+Nothing about the guarantees changes with the front door. The server only accepts a decision for the plan that is on the
+table, the SQL is still bound by the approval, and a killed apply still resumes from the log. Eight tests run the whole
+conversation with no model (`tests/test_chat.py`), including the reject path, a wrong plan id, and the crash.
+
+**First session with a model** (GPT-OSS 120B via OpenRouter, 13 Nov 2026, `--crash`). The analyst typed "Revenue looks
+wrong". The model made seven tool calls, named `stg_lineitem`, and its fix verified on the first rehearsal. Plan
+`ad37346ab188` was approved with the button. The log of the apply, as the chat showed it:
+
+```
+patch_procedure -> error   (the model sent SQL of its own; refused, the approved SQL is supplied for it)
+patch_procedure -> done
+Process killed right after the patch. Starting again from the run log ...
+patch_procedure -> error   (the model asked for the patch again; told it is already applied, and what is left)
+run_cycle -> done
+record_change -> done
+```
+
+Kept, one change-log line, and the dashboard reloaded with the corrected figures. This is the first time the "already
+applied" reply was seen doing its job on a live model: one refusal, then straight on to the rebuild. Before that reply
+existed, the same situation looped seven times (run three above). One session, not a rate.
+
+What it is not: a general assistant for the warehouse. It handles one thing, a complaint about a report through to a fix
+a person approves, one case at a time, on the frozen sample data. The model's tool calls appear when the investigation
+finishes, not as they happen. The key is read from the environment by the server and is never sent to the page.
+
 ## Tuning itself against its own benchmark
 
 Those 30 pauses were tuned by hand. `evolve/` makes that a loop instead: it proposes a change to the

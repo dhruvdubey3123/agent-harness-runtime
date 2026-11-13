@@ -20,6 +20,7 @@ guarantees is what happens after:
 from __future__ import annotations
 
 import difflib
+import re
 import hashlib
 from dataclasses import dataclass
 
@@ -90,6 +91,12 @@ def briefing(wh: SqlWarehouse, p: Proposal, rehearsal: str | None = None) -> str
             f"Plan id: {p.plan_id}")
 
 
+def _short(error: str) -> str:
+    """A refusal quotes the approved SQL, which is long, and its last words say what to do next. Cut the
+    SQL, not the sentence: a line that stops mid-refusal hides the one part a reader needs."""
+    return re.sub(r"sql=(['\"]).*?\1(?=[,)])", "sql=<the approved SQL>", " ".join(error.split()), flags=re.S)[:400]
+
+
 def _run(wh: SqlWarehouse, store: RunStore, run_id: str, calls: list[ToolCall], model, instructions: str,
          task: str, fault_hook=None, recovery: RecoveryPolicy | None = None, extra_steps: int = 0) -> dict:
     envelope = Envelope.from_calls(calls, KEY_FIELDS, BOUND_FIELDS)
@@ -103,7 +110,7 @@ def _run(wh: SqlWarehouse, store: RunStore, run_id: str, calls: list[ToolCall], 
     run, steps = store.get_run(run_id), store.steps(run_id)
     if run["status"] == "needs_review":
         raise NeedsReview(run_id, steps[-1])
-    lines = [f'{s["tool"]} -> {s["status"]}' + (f' ({s["error"][:150]})' if s["error"] else "") for s in steps]
+    lines = [f'{s["tool"]} -> {s["status"]}' + (f' ({_short(s["error"])})' if s["error"] else "") for s in steps]
     if run["status"] != "done":
         raise Incomplete(run_id, run["status"], run["answer"] or "", lines)
     return {"run_id": run_id, "status": run["status"], "answer": run["answer"], "steps": lines}

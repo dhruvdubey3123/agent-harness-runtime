@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Revenue reporting</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#EDEFF0; --surface:#FFFFFF; --ink:#121719; --muted:#56646A; --line:#CBD3D5;
+  --accent:#0F5E52; --accent-soft:#D4E8E2; --signal:#B3400C; --signal-soft:#F5DFD3; --amber:#8A6100; --amber-soft:#F4E9CC;
+  --display:'Archivo','Helvetica Neue',Arial,sans-serif; --body:'IBM Plex Sans',system-ui,sans-serif; --mono:'IBM Plex Mono',ui-monospace,Menlo,monospace;
+  --dur-fast:120ms; --dur-base:240ms; --dur-slow:480ms; --ease-enter:cubic-bezier(.16,1,.3,1);
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0D1215; --surface:#141B1F; --ink:#E8EEF0; --muted:#8A989E; --line:#26333A;
+  --accent:#52D2B6; --accent-soft:#11302A; --signal:#F2884A; --signal-soft:#36210F; --amber:#E3B44C; --amber-soft:#2E2510; color-scheme:dark}}
+@media (prefers-reduced-motion:reduce){:root{--dur-fast:.01ms;--dur-base:.01ms;--dur-slow:.01ms}}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);font-size:14.5px;line-height:1.55;-webkit-font-smoothing:antialiased}
+button,input{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.app{display:grid;grid-template-columns:minmax(0,1fr) 430px;height:100vh}
+
+/* the dashboard: what the analyst already looks at every morning */
+.dash{overflow:auto;padding:26px 30px 40px}
+.top{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:18px}
+h1{font-family:var(--display);font-weight:700;font-size:25px;letter-spacing:-.02em;margin:0}
+.asof{color:var(--muted);font-size:13px}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:20px}
+.tab{background:none;border:0;border-bottom:2px solid transparent;padding:8px 12px;margin-bottom:-1px;font-family:var(--mono);font-size:12.5px;color:var(--muted);cursor:pointer}
+.tab[aria-selected="true"]{color:var(--ink);border-color:var(--ink);font-weight:600}
+.figs{display:flex;flex-wrap:wrap;gap:34px;margin-bottom:26px}
+.fig .l{font-size:12.5px;color:var(--muted)}
+.fig .v{font-family:var(--display);font-weight:700;font-size:29px;letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1.2}
+.fig .was{font-family:var(--mono);font-size:11.5px;color:var(--accent);min-height:17px}
+.fig.changed .v{color:var(--accent)}
+h2{font-family:var(--display);font-size:15px;font-weight:600;margin:0 0 10px}
+.bars{display:grid;grid-template-columns:max-content 1fr max-content;gap:7px 12px;align-items:center;margin-bottom:28px;max-width:760px}
+.bars .n{font-family:var(--mono);font-size:12px}
+.bars .t{height:16px;background:var(--surface);border-radius:3px;overflow:hidden}
+.bars .b{height:100%;background:var(--accent);border-radius:3px;transition:width var(--dur-slow) var(--ease-enter)}
+.bars .x{font-family:var(--mono);font-size:12px;font-variant-numeric:tabular-nums;text-align:right}
+.tw{overflow:auto;border:1px solid var(--line);border-radius:8px;background:var(--surface);max-height:420px}
+table{border-collapse:collapse;width:100%;font-size:12.5px;font-variant-numeric:tabular-nums}
+th,td{padding:6px 12px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--line)}
+th{position:sticky;top:0;background:var(--surface);font-family:var(--mono);font-weight:500;color:var(--muted);font-size:11.5px}
+th.s,td.s{text-align:left}
+tr:last-child td{border-bottom:0}
+td.ch{background:var(--accent-soft);color:var(--accent)}
+.stale{background:var(--amber-soft);border:1px solid var(--amber);border-radius:8px;padding:9px 12px;margin-bottom:18px;font-size:13px}
+
+/* the chat */
+.chat{display:flex;flex-direction:column;border-left:1px solid var(--line);background:var(--surface);min-height:0}
+.ch-top{padding:14px 18px 12px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px}
+.ch-top b{font-family:var(--display);font-size:15px;white-space:nowrap}
+.mode{font-family:var(--mono);font-size:11px;color:var(--muted);margin-right:auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.reset{font-family:var(--mono);font-size:11.5px;background:none;border:1px solid var(--line);border-radius:6px;padding:5px 9px;cursor:pointer;white-space:nowrap}
+.log{flex:1;overflow:auto;padding:16px 18px;display:flex;flex-direction:column;gap:12px}
+.log>*{animation:in var(--dur-base) var(--ease-enter) both}
+@keyframes in{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+.hello{color:var(--muted);font-size:13.5px}
+.m{max-width:92%}
+.m.user{align-self:flex-end;background:var(--ink);color:var(--bg);padding:8px 12px;border-radius:12px 12px 3px 12px}
+.m.agent{align-self:flex-start}
+.steps{align-self:stretch;border-left:2px solid var(--line);padding-left:12px;font-family:var(--mono);font-size:11.5px;line-height:1.85;color:var(--muted);overflow-wrap:anywhere}
+.steps .no,.steps .k{color:var(--signal)} .steps .head{font-family:var(--body);font-size:12.5px}
+.card{align-self:stretch;border:1px solid var(--line);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:11px;background:var(--bg)}
+.card h3{font-family:var(--display);font-size:15.5px;margin:0;line-height:1.3}
+.card .k{font-size:12px;color:var(--muted)}
+.diff{font-family:var(--mono);font-size:11.5px;line-height:1.7;border:1px solid var(--line);border-radius:7px;overflow:hidden;background:var(--surface)}
+.diff div{padding:1px 9px;white-space:pre-wrap;word-break:break-word;color:var(--muted)}
+.diff .d{background:var(--signal-soft);color:var(--signal)} .diff .a{background:var(--accent-soft);color:var(--accent)}
+.plan{font-family:var(--mono);font-size:12.5px;display:flex;justify-content:space-between;padding:7px 10px;border:1px dashed var(--amber);border-radius:7px;background:var(--amber-soft)}
+.row{display:flex;gap:8px}
+.btn{font-family:var(--mono);font-size:12.5px;font-weight:600;padding:9px 13px;border-radius:6px;cursor:pointer;border:1px solid transparent}
+.btn.yes{flex:1;background:var(--accent);color:var(--surface)} .btn.no{background:none;border-color:var(--signal);color:var(--signal)}
+.btn:disabled{opacity:.4;cursor:default}
+.fine{font-size:12px;color:var(--muted)}
+.card.good{border-color:var(--accent);background:var(--accent-soft)} .card.bad{border-color:var(--signal);background:var(--signal-soft)}
+.card.good .fine,.card.bad .fine{color:var(--ink)}
+.busy{align-self:flex-start;color:var(--muted);font-size:13px;display:flex;gap:8px;align-items:center}
+.busy i{width:7px;height:7px;border-radius:50%;background:var(--accent);animation:pulse 1.1s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.25}}
+.say{border-top:1px solid var(--line);padding:12px 14px 14px}
+.sugg{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:9px}
+.sugg button{font-size:12.5px;background:none;border:1px solid var(--line);border-radius:999px;padding:4px 11px;cursor:pointer}
+.say form{display:flex;gap:8px}
+.say input{flex:1;min-width:0;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
+.say button[type=submit]{font-family:var(--mono);font-weight:600;font-size:12.5px;padding:0 15px;border:0;border-radius:8px;background:var(--ink);color:var(--bg);cursor:pointer}
+.say :disabled{opacity:.45;cursor:default}
+@media (max-width:900px){.app{grid-template-columns:1fr;height:auto}.chat{border-left:0;border-top:1px solid var(--line);min-height:70vh}.dash{padding:20px 16px}}
+</style></head>
+<body>
+<div class="app">
+  <main class="dash">
+    <div class="top"><h1>Revenue reporting</h1><span class="asof" id="asof"></span></div>
+    <div class="tabs" role="tablist" id="tabs"></div>
+    <div id="stale"></div>
+    <div class="figs" id="figs"></div>
+    <h2>Revenue by region</h2>
+    <div class="bars" id="bars"></div>
+    <h2>Every row of this report</h2>
+    <div class="tw"><table id="tbl"></table></div>
+  </main>
+  <aside class="chat" aria-label="Chat with the pipeline agent">
+    <div class="ch-top"><b>Pipeline agent</b><span class="mode" id="mode"></span><button class="reset" id="reset" type="button" title="Rebuild the warehouse with the fault back in">Start over</button></div>
+    <div class="log" id="log" aria-live="polite">
+      <div class="hello">See a number that looks wrong? Tell me which one. I trace it back through the tables that feed this report and propose a fix. I change nothing until you approve it.</div>
+    </div>
+    <div class="say">
+      <div class="sugg" id="sugg"></div>
+      <form id="form"><input id="text" autocomplete="off" aria-label="What looks wrong with this report" placeholder="What looks wrong with this report?"><button type="submit" id="send">Send</button></form>
+    </div>
+  </aside>
+</div>
+<script>
+const $=s=>document.querySelector(s);
+const h=(tag,cls,text)=>{const e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;return e};
+const api=(p,body)=>fetch(p,body?{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)}:undefined)
+  .then(async r=>{const j=await r.json();if(!r.ok)throw new Error(j.detail||r.statusText);return j});
+const money=v=>v.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
+const fmt=(c,v)=>v==null?"none":typeof v!=="number"?String(v):/share|rate/.test(c)?(v*100).toFixed(2)+"%":Number.isInteger(v)?v.toLocaleString("en-US"):money(v);
+const LABEL={revenue:"Revenue",orders:"Orders",customers:"Customers",latest_day:"Latest day loaded"};
+let reports=[],current=null,data={},before={},seen=0,state="idle",steps=null,busy=null;
+
+function figures(d){const out=[],col=c=>d.columns.indexOf(c);
+  for(const c of ["revenue","orders","customers"])if(col(c)>=0)out.push([c,d.rows.reduce((a,r)=>a+(r[col(c)]||0),0)]);
+  if(col("latest_day")>=0)out.push(["latest_day",d.rows.map(r=>r[col("latest_day")]).filter(Boolean).sort().pop()||"none"]);
+  return out}
+function draw(){const d=data[current],b=before[current];if(!d)return;
+  $("#stale").replaceChildren(...(d.refreshed?[]:[h("div","stale","This report did not refresh in the last run. The figures below are from the run before.")]));
+  const old=b?Object.fromEntries(figures(b)):{};
+  $("#figs").replaceChildren(...figures(d).map(([c,v])=>{const f=h("div","fig"),ch=b&&old[c]!==v;if(ch)f.classList.add("changed");
+    f.append(h("div","l",LABEL[c]),h("div","v",fmt(c,v)),h("div","was",ch?"was "+fmt(c,old[c]):""));return f}));
+  const ri=d.columns.indexOf("region"),vi=d.columns.indexOf("revenue"),by={};
+  d.rows.forEach(r=>{const k=r[ri]??"(no region)";by[k]=(by[k]||0)+(r[vi]||0)});
+  const max=Math.max(...Object.values(by),1);
+  $("#bars").replaceChildren(...Object.entries(by).flatMap(([k,v])=>{const t=h("div","t"),bar=h("div","b");bar.style.width=(v/max*100)+"%";t.append(bar);
+    return [h("div","n",k),t,h("div","x",money(v))]}));
+  const isNum=i=>d.rows.some(r=>typeof r[i]==="number");
+  const key=r=>r.map((v,i)=>isNum(i)?"":v).join("|"),prev=b?Object.fromEntries(b.rows.map(r=>[key(r),r])):null;
+  const tr=h("tr");d.columns.forEach((c,i)=>tr.append(h("th",isNum(i)?"":"s",c)));
+  const body=d.rows.map(r=>{const row=h("tr"),p=prev&&prev[key(r)];
+    r.forEach((v,i)=>{const td=h("td",isNum(i)?"":"s",fmt(d.columns[i],v));if(p&&p[i]!==v){td.classList.add("ch");td.title="was "+fmt(d.columns[i],p[i])}row.append(td)});return row});
+  $("#tbl").replaceChildren(tr,...body);
+  $("#asof").textContent=d.rows.length+" rows"+(b?", cells changed by the fix are marked":"");
+  document.querySelectorAll(".tab").forEach(t=>t.setAttribute("aria-selected",t.dataset.r===current));
+  const sug=current.includes("regional")?["Margin rate looks wrong","Revenue by region looks off"]:["Revenue looks wrong","Trailing 7 day revenue is off"];
+  $("#sugg").replaceChildren(...sug.map(s=>{const b=h("button",null,s);b.type="button";b.onclick=()=>send(s);return b}));lockInput()}
+async function load(keep){for(const r of reports){const d=await api("/api/report/"+r);
+    if(keep&&data[r]&&JSON.stringify(data[r].rows)!==JSON.stringify(d.rows))before[r]=data[r];data[r]=d}draw()}
+function lockInput(){const off=state!=="idle";$("#text").disabled=$("#send").disabled=off;document.querySelectorAll("#sugg button").forEach(b=>b.disabled=off);
+  $("#text").placeholder=state==="awaiting"?"Approve or reject the plan above":off?"Working ...":"What looks wrong with this report?"}
+function add(e){const log=$("#log");if(busy){busy.remove();busy=null}
+  if(e.kind!=="tool"&&e.kind!=="step")steps=null;
+  if(e.kind==="user"||e.kind==="agent")log.append(h("div","m "+e.kind,e.text));
+  else if(e.kind==="tool"||e.kind==="step"){
+    if(!steps||steps.dataset.k!==e.kind){steps=h("div","steps");steps.dataset.k=e.kind;steps.append(h("div","head",e.kind==="tool"?"What I did, in order":"Applying your approved plan, one logged step at a time"));log.append(steps)}
+    if(e.kind==="tool"){steps.append(h("div",e.ok?"":"no",e.tool+"("+e.args+")"+(e.ok?"":"  refused by the harness")));if(!e.ok)steps.append(h("div","no","  "+e.note))}
+    else steps.append(h("div",e.killed?"k":"",e.text))}
+  else if(e.kind==="proposal"){const c=h("div","card");
+    c.append(h("h3",null,"I have a fix for "+e.node+". Nothing has been applied."));
+    const why=h("div");why.append(h("div","k",e.drafted_by==="model"?"Why, in the model's words":"Why"),h("div",null,e.reason||"(no reason given)"));c.append(why);
+    const df=h("div","diff");e.diff.forEach(l=>df.append(h("div",l[0]==="-"?"d":l[0]==="+"?"a":"",l)));
+    const dw=h("div");dw.append(h("div","k","The change to its SQL"),df);c.append(dw);
+    c.append(h("div",null,"Rehearsal: "+e.rehearsal+"."+(e.tries?" Tries: "+e.tries+".":"")+(e.refusals?" Calls the harness refused while I worked: "+e.refusals+".":"")));
+    const pl=h("div","plan");pl.append(h("span",null,"Plan id"),h("b",null,e.plan_id));c.append(pl);
+    const row=h("div","row"),y=h("button","btn yes","Approve this plan"),n=h("button","btn no","Reject");y.type=n.type="button";
+    const go=ok=>{y.disabled=n.disabled=true;api("/api/decide",{plan_id:e.plan_id,approve:ok}).then(poll).catch(err=>{log.append(h("div","m agent",err.message));y.disabled=n.disabled=false})};
+    y.onclick=()=>go(true);n.onclick=()=>go(false);row.append(y,n);c.append(row);
+    c.append(h("div","fine","Approval covers this SQL only. A different query is a different plan and is refused."));log.append(c)}
+  else if(e.kind==="result"){const c=h("div","card "+(e.kept?"good":"bad"));
+    c.append(h("h3",null,e.kept?"Fixed, verified and kept.":"The fix did not verify, so I rolled it back."));
+    c.append(h("div",null,"This report right: "+(e.functional?"yes":"no")+". Every other table right: "+(e.integrity?"yes":"no")+"."));
+    if(e.kept)c.append(h("div","fine","Change log lines for this case: "+e.changes+(e.log.length?". “"+e.log[0]+"”":"")),h("div","fine","The dashboard has reloaded. Changed figures are marked."));
+    log.append(c)}
+  log.scrollTop=log.scrollHeight}
+let timer=null;
+async function poll(){clearTimeout(timer);const was=state;let r;try{r=await api("/api/events?since="+seen)}catch(e){timer=setTimeout(poll,1500);return}
+  state=r.state;r.events.forEach(add);seen+=r.events.length;
+  const working=state==="working"||state==="applying";
+  if(working&&!busy){busy=h("div","busy");busy.append(h("i"),h("span",null,state==="working"?"Investigating. With a model this can take a minute.":"Applying ..."));$("#log").append(busy);$("#log").scrollTop=1e9}
+  if(!working&&busy){busy.remove();busy=null}
+  if(r.events.some(e=>e.kind==="result")||(was==="applying"&&state==="idle"))await load(true);
+  document.querySelectorAll(".card .btn").forEach(b=>{if(state!=="awaiting")b.disabled=true});
+  lockInput();if(working)timer=setTimeout(poll,700)}
+function send(t){t=(t||"").trim();if(!t||state!=="idle")return;$("#text").value="";
+  api("/api/complain",{text:t,report:current}).then(poll).catch(e=>$("#log").append(h("div","m agent",e.message)))}
+$("#form").onsubmit=e=>{e.preventDefault();send($("#text").value)};
+$("#reset").onclick=()=>api("/api/reset",{}).then(()=>location.reload()).catch(e=>$("#log").append(h("div","m agent",e.message)));
+(async()=>{const m=await api("/api/meta");reports=m.reports;current=reports[0];$("#mode").textContent=m.mode+(m.crash?", crash test on":"");
+  $("#tabs").replaceChildren(...reports.map(r=>{const t=h("button","tab",r);t.type="button";t.dataset.r=r;t.setAttribute("role","tab");t.onclick=()=>{current=r;draw()};return t}));
+  await load(false);poll()})();
+</script>
+</body></html>
