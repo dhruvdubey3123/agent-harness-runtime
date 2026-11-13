@@ -455,7 +455,21 @@ table, the SQL is still bound by the approval, and a killed apply still resumes 
 with no model (`tests/test_chat.py`), including a rejected plan, a wrong plan id, the crash, and an agent that blames the
 wrong source and is caught by the check.
 
-**First session with a model** (GPT-OSS 120B via OpenRouter, 13 Nov 2026, `--crash`). The analyst typed "Revenue looks
+**First nights with a model** (GPT-OSS 120B via OpenRouter, 13 Nov 2026, seed 0, three nights, two tickets).
+
+- Night 1, bad source data (a fifth of the suppliers missing). The model tried to close the ticket before reading the
+  source checks and was refused. It then blamed `stg_supplier`, which is a table the pipeline builds and not a source,
+  and was refused again. Third call: `raw.supplier`, no SQL changed. The owner's reload was checked against the
+  reference and the ticket closed.
+- Night 2, quiet.
+- Night 3, a SQL fault (a share computed from an average). One refusal for proposing a fix before checking the table,
+  then a fix that verified on its first rehearsal. Plan `cb67d748a439` approved, applied in three logged steps, kept.
+
+Two tickets, both ended rightly, three calls refused by the harness on the way. Neither a mistaken complaint nor a
+fault no check can see came up in these nights, and those are the kinds the model did worst on in the triage repo's
+sample.
+
+**The earlier session, before the queue** (GPT-OSS 120B via OpenRouter, 13 Nov 2026, `--crash`). The analyst typed "Revenue looks
 wrong". The model made seven tool calls, named `stg_lineitem`, and its fix verified on the first rehearsal. Plan
 `ad37346ab188` was approved with the button. The log of the apply, as the chat showed it:
 
@@ -474,8 +488,7 @@ existed, the same situation looped seven times (run three above). One session, n
 
 What it is not: a general assistant for the warehouse. It handles one thing, a complaint about a report through to its
 right ending, one ticket at a time. The data is a frozen sample, so a night brings a new fault and not new rows, and the
-faults are drawn from 38 known cases. The session recorded above was before the queue existed; no model has yet been run
-through nights with all three kinds of ticket. The model's tool calls appear when the investigation
+faults are drawn from 38 known cases. No model has yet been run through nights that include a mistaken complaint. The model's tool calls appear when the investigation
 finishes, not as they happen. The key is read from the environment by the server and is never sent to the page.
 
 ## Tuning itself against its own benchmark
