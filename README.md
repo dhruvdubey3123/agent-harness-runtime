@@ -318,9 +318,48 @@ python -m triage_bridge.sql_demo                                                
 ```
 
 The second form uses GPT-OSS 120B on Groq by default (`HARNESS_API_KEY` in the environment): one agent drafts the fix with
-read-only tools, a checker and a rehearsal, you read the diff and type the approval, and a second agent applies it. No
-result from a model run of this is reported here yet. The verification compares against a reference run, which is a
-rehearsal on frozen data and not something that can run in production.
+read-only tools, a checker and a rehearsal, you read the diff and type the approval, and a second agent applies it. The
+verification compares against a reference run, which is a rehearsal on frozen data and not something that can run in
+production.
+
+**Two runs with models, on the same incident** (GPT-OSS 120B through OpenRouter for both agents; the break is a seven-day
+total that sums six days and passes every health check):
+
+```
+2. Drafting a fix (model) ...
+    where_checks_fail() ok
+    read_sql(rpt_revenue_dashboard) ok
+    try_fix(rpt_revenue_dashboard, select m.region, ...) REFUSED: call check_node on rpt_revenue_dashboard before proposing a fix for it
+    check_node(rpt_revenue_dashboard) ok
+    try_fix(rpt_revenue_dashboard, select m.region, ...) ok
+    rehearsal tries: 1; refused by the harness: 1
+
+3. For your approval. Nothing has been applied.
+Rehearsal: verified on a rehearsal copy: the report and every other table came out right
+-where order_date > (select max(order_date)
++where order_date >= (select max(order_date)
+ from mart_daily_revenue) - 6) as trailing_7d_revenue
+Approve plan 6c9cd78a65f7? [y/N] y
+
+4. Applying plan 6c9cd78a65f7 through the harness (model) ...
+   patch_procedure -> done
+   run_cycle -> done
+   record_change -> done
+5. Checking the warehouse ...
+   Report right: True. Everything else right: True.
+   Kept.
+```
+
+The second run, minutes later on the same break, went the other way: the drafter used its three rehearsals without a fix
+that verified, said so, and nothing was offered for approval. Both outcomes are the system working. Which one you get on a
+given run is the model, and one incident run twice is an illustration, not a measurement; the measured comparison over
+twelve incidents is in
+[pipeline-triage-graph](https://github.com/dhruvdubey3123/pipeline-triage-graph#measured-the-model-alone-against-the-model-with-the-checker).
+
+Two things the first run showed and that are changed since: the briefing had no reason on it, because the model skipped the
+closing call that carried one, and the fixer's change-log line described the report and not the change. The reason now
+travels with the rehearsal and is handed to the fixer. A crash during an apply by a model has not been run yet; the crash
+tests use a scripted fixer.
 
 ## Tuning itself against its own benchmark
 

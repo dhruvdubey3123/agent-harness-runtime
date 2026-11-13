@@ -107,7 +107,8 @@ def apply(wh: SqlWarehouse, store: RunStore, p: Proposal, approved_plan_id: str 
     calls = p.calls()
     replaying = model is None
     task = (f"Apply the approved fix for {p.case_id}. Approved actions: "
-            f"{Envelope.from_calls(calls, KEY_FIELDS, BOUND_FIELDS).describe()}")
+            f"{Envelope.from_calls(calls, KEY_FIELDS, BOUND_FIELDS).describe()}. "
+            f"What the fix does, for the change log: {p.reason or 'not stated'}")
     return _run(wh, store, f"sqlfix-{p.case_id}", calls, ScriptedModel(calls) if replaying else model,
                 REPLAY if replaying else FIXER, task, fault_hook, recovery, extra_steps=1 if replaying else 6)
 
