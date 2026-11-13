@@ -291,6 +291,37 @@ python -m triage_bridge.live_fix                # 4 checks: apply, crash, untrus
 
 CI runs the same two-agent path against the stub server, including a kill during the diagnosis and a kill during the fix.
 
+## A real SQL fix, approved in the terminal
+
+Everything above runs against a stand-in where a patch is a sentence in a row. `triage_bridge/sql_warehouse.py` puts the
+real warehouse from [pipeline-triage-graph](https://github.com/dhruvdubey3123/pipeline-triage-graph#a-real-warehouse-behind-it)
+behind the same runtime: TPC-H in DuckDB, twelve procedures that are SQL, and a fix that is SQL which gets deployed and run.
+
+```
+proposal -> a person approves that exact SQL -> the fixer applies it inside the approval
+         -> the warehouse is checked -> kept, or rolled back through the same run log
+```
+
+| Guarantee | How it is held |
+|---|---|
+| Nothing is applied without approval of this plan | The approval is for a plan id, a hash of the node and the SQL. A proposal whose SQL changed afterwards has a different id and is refused. |
+| The SQL that runs is the SQL that was approved | It is bound at the tool boundary. The fixer names the procedure and the runtime supplies the SQL; a fixer that writes its own is refused, in the run log. |
+| A crash does not repeat anything | Deploying a definition and rebuilding are safe to repeat. Recording the change is not, so an apply killed there stops for a person and the line is written once. |
+| A fix that does not verify does not stay | After the apply, the report and every other table are compared with the reference run. If either is wrong, the definition it replaced is put back by a second harness run, so the rollback is journaled like the fix. |
+
+`tests/test_sql_fix.py` covers each row, including a person approving a wrong fix (applied, because it was approved, then
+rolled back) and a fix that hard-codes the report (the report comes back, the warehouse does not, rolled back).
+
+```bash
+python -m triage_bridge.sql_demo --draft reference --fixer replay --approve yes --crash    # no model, no key
+python -m triage_bridge.sql_demo                                                           # models, and you approve
+```
+
+The second form uses GPT-OSS 120B on Groq by default (`HARNESS_API_KEY` in the environment): one agent drafts the fix with
+read-only tools, a checker and a rehearsal, you read the diff and type the approval, and a second agent applies it. No
+result from a model run of this is reported here yet. The verification compares against a reference run, which is a
+rehearsal on frozen data and not something that can run in production.
+
 ## Tuning itself against its own benchmark
 
 Those 30 pauses were tuned by hand. `evolve/` makes that a loop instead: it proposes a change to the

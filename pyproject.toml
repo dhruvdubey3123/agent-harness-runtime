@@ -16,7 +16,8 @@ dependencies = ["pydantic>=2.6", "fastapi>=0.110", "uvicorn>=0.29"]
 mcp = ["mcp>=2.0"]
 llm = ["anthropic>=0.40", "httpx>=0.27"]
 local = ["httpx>=0.27"]
-triage = ["pipeline-triage-graph @ git+https://github.com/dhruvdubey3123/pipeline-triage-graph.git", "langgraph-checkpoint-sqlite>=2"]
+triage = ["pipeline-triage-graph @ git+https://github.com/dhruvdubey3123/pipeline-triage-graph.git", "langgraph-checkpoint-sqlite>=2",
+          "duckdb>=1.1,<1.3"]
 dev = ["pytest>=8", "httpx>=0.27", "mcp>=2.0"]
 
 [tool.setuptools]
