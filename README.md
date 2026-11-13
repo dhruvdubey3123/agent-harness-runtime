@@ -401,6 +401,25 @@ not ask for the patch again in this run, so the new "already applied" reply is c
 seen steering a live model out of the loop. Run three and run four are the same code path up to the kill; the difference
 is the model.
 
+**A fifth run, on a different break** (`type_drift.price_as_integer`, where a staging table casts prices to integers and
+seven of twelve tables fail a health check). The model named the staging table, rehearsed a fix that verified, plan
+`38ebe875c042` was approved in the terminal, and the apply was killed after the patch:
+
+```
+4. Applying plan 38ebe875c042 through the harness (model) ...
+   Process killed right after the patch. Starting again from the run log ...
+   patch_procedure -> done
+   run_cycle -> done
+   record_change -> done
+5. Checking the warehouse ...
+   Report right: True. Everything else right: True.
+   Kept.
+   Change log lines for this case: 1
+```
+
+That is two clean crash-and-resume runs by a model fixer, on two breaks, against one that looped before the fix. Still an
+illustration and not a rate.
+
 ## Tuning itself against its own benchmark
 
 Those 30 pauses were tuned by hand. `evolve/` makes that a loop instead: it proposes a change to the
