@@ -30,7 +30,7 @@ from triage.warehouse.pipeline import BY_ID
 from harness import OpenAICompatModel, RunStore, SimulatedCrash
 
 from . import sql_fix
-from .sql_fix import NeedsReview, Proposal
+from .sql_fix import Incomplete, NeedsReview, Proposal
 from .sql_warehouse import SqlWarehouse
 
 GROQ, MODEL = "https://api.groq.com/openai/v1", "openai/gpt-oss-120b"
@@ -137,6 +137,15 @@ def main(argv: list[str] | None = None) -> dict:
     except NeedsReview as e:
         print(f"   Stopped for a person: {e}")
         return {**report, "result": "needs review"}
+    except Incomplete as e:
+        for line in e.steps:
+            print(f"   {line}")
+        state = wh.outcome(p.symptom_node, allowed=(p.node,))
+        print(f"\n   The apply did NOT complete ({e.answer}).")
+        print(f"   Nothing outside the approval ran. As it stands: report right {state['functional']}, "
+              f"everything else right {state['integrity']}, change log lines {wh.counts()['changes'].get('CASE-1', 0)}.")
+        print("   This goes to a person: the approved plan is only partly carried out.")
+        return {**report, "result": "incomplete", "status": e.status}
     print(f"   Report right: {out['functional']}. Everything else right: {out['integrity']}.")
     print("   Kept." if out["kept"] else "   Rolled back to the prior definition.")
     counts = wh.counts()

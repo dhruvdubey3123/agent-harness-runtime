@@ -98,9 +98,21 @@ class Envelope:
                 if used.get(i, 0) < a.times:
                     return i
                 spent = a
+        if spent is None:
+            # The same target with different, or missing, bound content is still the same approved action.
+            # Once it is applied, the useful thing to say is that it is done, not that the content is wrong:
+            # a model resumed after a crash asks for the patch again, and "not with that sql" sends it round
+            # in circles when the patch is already in.
+            for i, a in enumerate(self.actions):
+                targets = [(k, v) for k, v in a.match if k not in a.bound]
+                if (a.tool == call.tool and a.bound and used.get(i, 0) >= a.times
+                        and all(call.args.get(k) == v for k, v in targets)):
+                    spent = a
         if spent is not None:
+            left = self.remaining(used)
             raise ToolDenied(f"the approved plan allows {spent} and that is already applied; "
-                             "a person has to approve another one")
+                             "a person has to approve another one"
+                             + (f". Still to apply: {'; '.join(left)}" if left else ""))
         for a in self.actions:
             if a.tool != call.tool:
                 continue

@@ -358,8 +358,28 @@ twelve incidents is in
 
 Two things the first run showed and that are changed since: the briefing had no reason on it, because the model skipped the
 closing call that carried one, and the fixer's change-log line described the report and not the change. The reason now
-travels with the rehearsal and is handed to the fixer. A crash during an apply by a model has not been run yet; the crash
-tests use a scripted fixer.
+travels with the rehearsal and is handed to the fixer. **A third run, with the apply killed after the patch.** The resumed fixer did not carry on from the log. It asked for the
+patch again, seven times, with SQL of its own:
+
+```
+4. Applying plan 6c9cd78a65f7 through the harness (model) ...
+   Process killed right after the patch. Starting again from the run log ...
+   patch_procedure -> done
+   patch_procedure -> error (denied: 'patch_procedure' is approved here, but not with that sql ...)      x7
+   run_cycle -> done
+```
+
+The runtime held: every one of those was refused, the approved SQL stayed deployed, and the warehouse verified. Two things
+did not hold, and both were this project's faults:
+
+- **The refusal sent the model in circles.** The patch was already in, and it was told its SQL was wrong, so it tried other
+  SQL until it ran out of steps and never recorded the change. A repeated request for an action that is already applied is
+  now told exactly that, with what is still to do.
+- **The demo printed "Kept".** The run had ended with an approved action not applied, and the demo only looked at the
+  warehouse. An apply that does not finish now raises, and the demo says the plan is only partly carried out and hands it
+  to a person.
+
+Both are tests now, written from this run. A clean crash and resume by a model fixer has still not been observed.
 
 ## Tuning itself against its own benchmark
 

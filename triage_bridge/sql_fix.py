@@ -44,6 +44,15 @@ class NotApproved(Exception):
     pass
 
 
+class Incomplete(Exception):
+    """The run ended with approved actions not applied. What was applied stays applied and is in the
+    log; the plan a person approved has not been carried out, and that is not reported as done."""
+
+    def __init__(self, run_id: str, status: str, answer: str, steps: list[str]):
+        super().__init__(f"{run_id} ended {status}: {answer}")
+        self.run_id, self.status, self.answer, self.steps = run_id, status, answer, steps
+
+
 class NeedsReview(Exception):
     def __init__(self, run_id: str, step: dict):
         super().__init__(f"{run_id}: step {step['idx']} ({step['tool']}) was interrupted and is not safe to repeat")
@@ -94,8 +103,10 @@ def _run(wh: SqlWarehouse, store: RunStore, run_id: str, calls: list[ToolCall], 
     run, steps = store.get_run(run_id), store.steps(run_id)
     if run["status"] == "needs_review":
         raise NeedsReview(run_id, steps[-1])
-    return {"run_id": run_id, "status": run["status"], "answer": run["answer"],
-            "steps": [f'{s["tool"]} -> {s["status"]}' + (f' ({s["error"][:90]})' if s["error"] else "") for s in steps]}
+    lines = [f'{s["tool"]} -> {s["status"]}' + (f' ({s["error"][:150]})' if s["error"] else "") for s in steps]
+    if run["status"] != "done":
+        raise Incomplete(run_id, run["status"], run["answer"] or "", lines)
+    return {"run_id": run_id, "status": run["status"], "answer": run["answer"], "steps": lines}
 
 
 def apply(wh: SqlWarehouse, store: RunStore, p: Proposal, approved_plan_id: str | None, model=None,

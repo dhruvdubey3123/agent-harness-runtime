@@ -9,7 +9,7 @@ from harness import Finish, RunStore, ScriptedModel, SimulatedCrash, ToolCall  #
 from harness.types import DENIED  # noqa: E402
 from triage.warehouse.pipeline import BY_ID  # noqa: E402
 from triage_bridge import sql_fix  # noqa: E402
-from triage_bridge.sql_fix import NeedsReview, NotApproved, Proposal  # noqa: E402
+from triage_bridge.sql_fix import Incomplete, NeedsReview, NotApproved, Proposal  # noqa: E402
 from triage_bridge.sql_warehouse import SqlWarehouse  # noqa: E402
 
 BREAK, NODE, REPORT = "date_window.trailing_six_days", "rpt_revenue_dashboard", "rpt_revenue_dashboard"
@@ -158,3 +158,35 @@ def test_the_demo_runs_end_to_end_without_a_model(tmp_path, capsys):
 
     no = sql_demo.main(["--draft", "reference", "--fixer", "replay", "--approve", "no", "--workdir", str(tmp_path / "b")])
     assert no["result"] == "rejected" and no["deployed_unchanged"]
+
+
+def test_a_fixer_that_asks_for_the_patch_again_after_a_crash_is_told_it_is_done(wh):
+    """Seen with a real model: resumed after the patch, it asked for the patch seven more times with its
+    own SQL, was told each time that the SQL was wrong, and ran out of steps before recording the change."""
+    p, store = proposal(), RunStore(wh.path + ".runs")
+    with pytest.raises(SimulatedCrash):
+        sql_fix.apply(wh, store, p, p.plan_id, fault_hook=crash("patch_procedure", "after_tool"))
+    store.close()
+    store2 = RunStore(wh.path + ".runs")
+    confused = ScriptedModel([ToolCall("patch_procedure", {"node": NODE}),                       # replayed from the log
+                              ToolCall("patch_procedure", {"node": NODE, "sql": "select 1"}),    # again, its own SQL
+                              ToolCall("patch_procedure", {"node": NODE}),                       # again, SQL left out
+                              ToolCall("run_cycle", {}),
+                              ToolCall("record_change", {"case_id": "CASE-1", "body": "window is seven days again"}),
+                              Finish("done")])
+    run = sql_fix.apply(wh, store2, p, p.plan_id, model=confused)
+    steps = store2.steps("sqlfix-CASE-1")
+    for s in steps[1:3]:
+        assert "already applied" in s["error"] and "Still to apply: run_cycle(); record_change" in s["error"]
+    assert run["status"] == "done" and wh.deployed(NODE) == p.sql and wh.counts()["changes"] == {"CASE-1": 1}
+    store2.close()
+
+
+def test_an_apply_that_runs_out_of_steps_is_not_reported_as_done(wh):
+    p, store = proposal(), RunStore()
+    stuck = ScriptedModel([ToolCall("patch_procedure", {"node": NODE})]
+                          + [ToolCall("patch_procedure", {"node": "stg_orders"})] * 12)
+    with pytest.raises(Incomplete) as e:
+        sql_fix.apply(wh, store, p, p.plan_id, model=stuck)
+    assert e.value.status == "failed" and wh.counts()["changes"] == {}
+    assert wh.deployed("stg_orders") == BY_ID["stg_orders"].sql, "nothing outside the approval ran"
